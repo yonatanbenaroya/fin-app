@@ -11,12 +11,18 @@ function greeting(t) {
   return hour < 12 ? t.greetMorning : hour < 18 ? t.greetAfternoon : t.greetEvening;
 }
 
+/** One quiet line when the latest data is older than today (design.md §6 "Dates"): "Data up to 12.11". */
+function dataLine(data, ctx) {
+  if (!data.data_stale || !data.data_date) return '';
+  const [, month, day] = data.data_date.split('-');
+  return `<span class="lead note">${esc(ctx.t.dataThrough(`${day}.${month}`))}</span>`;
+}
+
 function hero(data, ctx) {
   const { t } = ctx;
   const budget = data.budget;
   if (!budget) {
-    return `<div class="hero"><span class="lead">${esc(t.noBudgetHint)}</span>
-      <span class="lead note">${esc(t.dataThrough(ctx.dayMonth(data.data_date)))}</span></div>`;
+    return `<div class="hero"><span class="lead">${esc(t.noBudgetHint)}</span>${dataLine(data, ctx)}</div>`;
   }
   const p = budget.total;
   const over = p.left < 0;
@@ -45,7 +51,7 @@ function hero(data, ctx) {
       <div class="ends"><span>${esc(t.dayMonth(1, short))}</span><span>${esc(t.dayOf(p.day, p.days_in_month))}</span>
         <span>${esc(t.dayMonth(p.days_in_month, short))}</span></div>
     </div>
-    <span class="lead note">${esc(t.dataThrough(ctx.dayMonth(data.data_date)))}</span>
+    ${dataLine(data, ctx)}
     ${preview}
   </div>`;
 }

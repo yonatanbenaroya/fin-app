@@ -1,6 +1,9 @@
 // All user-facing strings, one keyed table per language (design.md §4).
 // Wording follows the prototype (docs/design-prototype-v0.2.dc.html) where it has a string.
 
+/** A name of either direction inside a sentence: isolated so it never reorders the words around it. */
+const iso = (text) => `\u2068${text}\u2069`;
+
 export const T = {
   en: {
     greetMorning: 'Good morning', greetAfternoon: 'Good afternoon', greetEvening: 'Good evening',
@@ -17,7 +20,7 @@ export const T = {
     hideLbl: 'Hide amounts', showLbl: 'Show amounts',
     actTitle: 'Activity', fAll: 'All', fOut: 'Spending', fIn: 'Income',
     dToday: 'Today', dYday: 'Yesterday',
-    sources: { max: 'Max', cal: 'Cal', hapoalim: 'Hapoalim' },
+    sources: { max: 'Max', cal: 'Cal', hapoalim: 'Hapoalim', manual: 'Added by hand' },
     catTitle: 'Categories', catSub: (m) => `${m} · by spending`, spentSoFar: 'Spent so far',
     ofBudgetFn: (a) => `of ${a} budget`, onPace: 'On pace', ahead: 'Ahead of pace', overPace: 'Over budget',
     of: 'of ', noBudget: 'No budget',
@@ -97,6 +100,15 @@ export const T = {
     resError: (name, msg) => `${name}: ${msg}`,
     sLocal: 'Data stays on this Mac', setFoot: 'Finance · v1',
     txDate: 'Date', txPaid: 'Paid with', txCat: 'Category',
+    txFromBank: 'Amount and date come from the bank; only the category can change.',
+    txNeedsAccount: 'To change a category, set up the encrypted account first (Settings).',
+    txName: 'Description', txAmount: 'Amount (₪)', txSave: 'Save', txDelete: 'Delete',
+    scopeTitle: 'Apply to', scopeOne: 'This transaction only',
+    scopeMerchant: (name, n) => `Every transaction from ${iso(name)} (${n})`,
+    scopeAmount: (name, amount, n) => `${iso(name)} at exactly ${amount} (${n})`,
+    kinds: { income: 'Income', transfer_in: 'Money from people', internal_transfer: 'Between my accounts', investment: 'Investments', family_support: 'Family support' },
+    toastMoved: (cat) => `Moved to ${iso(cat)}`, toastSaved: 'Saved', toastDeleted: 'Deleted',
+    undo: 'Undo', undone: 'Undone',
     dataThrough: (d) => `Data through ${d}`,
     preview: (m) => `The budget starts in ${m}. This month is shown against it as a preview.`,
     noBudgetHint: 'No budget saved yet. Run “fin budget --save” on the Mac.',
@@ -115,7 +127,7 @@ export const T = {
       'דירה': 'Home', 'בנק': 'Bank fees', 'לימודים': 'Studies', 'בגדים': 'Clothes', 'בילויים': 'Going out',
       'חו"ל': 'Abroad', 'קניות': 'Shopping', 'ריהוט ובית': 'Furniture & home', 'מתנות': 'Gifts', 'סיגריות': 'Cigarettes',
       'חתונה': 'Weddings', 'מסיבות': 'Parties', 'חוויה': 'Experiences', 'העברות לאנשים': 'Transfers to people',
-      'מזומן': 'Cash', 'שונות': 'Other', 'לא מסווג': 'Uncategorized', 'חיוב כרטיס ללא פירוט': 'Card bill without detail',
+      'מזומן': 'Cash', 'שונות': 'Other', 'לא מסווג': 'Uncategorized', 'חיוב כרטיס ללא פירוט': 'Card bill without detail', 'חיוב כרטיס מפורט': 'Card bill (detailed)',
       'משכורת': 'Salary', 'הכנסה אחרת': 'Other income', 'קבלות מאנשים': 'Money from people',
       'תמיכה משפחתית': 'Family support', 'זכות לא מסווגת': 'Uncategorized credit', 'השקעות': 'Investments',
       'installments': 'Installments',
@@ -136,7 +148,7 @@ export const T = {
     hideLbl: 'הסתר סכומים', showLbl: 'הצג סכומים',
     actTitle: 'תנועות', fAll: 'הכול', fOut: 'הוצאות', fIn: 'הכנסות',
     dToday: 'היום', dYday: 'אתמול',
-    sources: { max: 'מקס', cal: 'כאל', hapoalim: 'הפועלים' },
+    sources: { max: 'מקס', cal: 'כאל', hapoalim: 'הפועלים', manual: 'הוזן ידנית' },
     catTitle: 'קטגוריות', catSub: (m) => `${m} · לפי הוצאות`, spentSoFar: 'הוצאות עד היום',
     ofBudgetFn: (a) => `מתוך תקציב ${a}`, onPace: 'בקצב', ahead: 'מעל הקצב', overPace: 'חריגה',
     of: 'מתוך ', noBudget: 'בלי תקציב',
@@ -216,6 +228,15 @@ export const T = {
     resError: (name, msg) => `${name}: ${msg}`,
     sLocal: 'הנתונים נשארים במק', setFoot: 'פיננסים · v1',
     txDate: 'תאריך', txPaid: 'שולם ב', txCat: 'קטגוריה',
+    txFromBank: 'הסכום והתאריך מגיעים מהבנק; אפשר לשנות רק את הקטגוריה.',
+    txNeedsAccount: 'כדי לשנות קטגוריה צריך קודם להקים את החשבון המוצפן (הגדרות).',
+    txName: 'תיאור', txAmount: 'סכום (₪)', txSave: 'שמירה', txDelete: 'מחיקה',
+    scopeTitle: 'להחיל על', scopeOne: 'העסקה הזאת בלבד',
+    scopeMerchant: (name, n) => `כל העסקאות מ-${iso(name)} (${n})`,
+    scopeAmount: (name, amount, n) => `${iso(name)} בסכום ${amount} בדיוק (${n})`,
+    kinds: { income: 'הכנסות', transfer_in: 'קבלות מאנשים', internal_transfer: 'בין החשבונות שלי', investment: 'השקעות', family_support: 'תמיכה משפחתית' },
+    toastMoved: (cat) => `הועבר ל${iso(cat)}`, toastSaved: 'נשמר', toastDeleted: 'נמחק',
+    undo: 'ביטול', undone: 'בוטל',
     dataThrough: (d) => `נתונים עד ${d}`,
     preview: (m) => `התקציב מתחיל ב${m}. החודש מוצג מולו כתצוגה מקדימה.`,
     noBudgetHint: 'עדיין לא נשמר תקציב. הרץ במק את “fin budget --save”.',

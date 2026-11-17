@@ -86,6 +86,12 @@ function renderScreen() {
   el.screen.innerHTML = SCREENS[state.tab].render(data, c, state.ui);
 }
 
+/** Today on this device, YYYY-MM-DD: days left in the month count from it (design.md §6). */
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 async function show(tab) {
   state.tab = tab;
   history.replaceState(null, '', `#${tab}`);
@@ -93,7 +99,8 @@ async function show(tab) {
   renderScreen();
   if (API[tab]) {
     try {
-      state.data[tab] = await backend.get(API[tab]);
+      state.today = localToday();
+      state.data[tab] = await backend.get(API[tab], { today: state.today });
     } catch (error) {
       state.data[tab] = error instanceof Error ? error : new Error(String(error));
     }
@@ -118,6 +125,7 @@ function openSheet(sheet) {
 }
 
 function closeSheet() {
+  if (state.sheet && state.sheet.kind === 'tx') state.tx = null;
   state.sheet = null;
   el.sheet.innerHTML = '';
   if (sheetTrigger && document.contains(sheetTrigger)) sheetTrigger.focus();
@@ -385,6 +393,112 @@ async function syncCode() {
   }
 }
 
+// ---- The transaction sheet: change a category (with its scope) or edit a manual transaction
+async function openTx(id) {
+  const [item, day] = findTransaction(id);
+  if (!item) return;
+  state.tx = { item, day, details: null, pick: {} };
+  renderTx();
+  try {
+    const details = await backend.get('transaction', { tx: item.tx });
+    if (state.tx && state.tx.item === item) { state.tx.details = details; renderTx(); }
+  } catch {
+    txResult(ctx().t.loadError, 'neg');
+  }
+}
+
+function renderTx() {
+  if (!state.tx) return;
+  const { item, day, details, pick } = state.tx;
+  const view = activity.sheet(item, day, ctx(), details, pick);
+  const panel = document.getElementById('tx-panel');
+  if (desktop.matches && panel) {
+    panel.innerHTML = `<h2 class="title" style="font-size:22px;line-height:28px">${esc(view.title)}</h2>${view.body}`;
+  } else if (state.sheet && state.sheet.kind === 'tx') {
+    const body = el.sheet.querySelector('.body');
+    const top = body.scrollTop;
+    body.innerHTML = view.body;
+    body.scrollTop = top; // choosing a category must not jump the sheet back to the top
+    el.sheet.querySelector('header h2').textContent = view.title;
+  } else {
+    openSheet({ kind: 'tx', ...view });
+  }
+}
+
+/** Keep what was typed in a manual transaction's fields when the sheet is drawn again. */
+function keepTyped() {
+  const field = (id) => document.getElementById(id);
+  if (!state.tx || !field('tx-name')) return;
+  Object.assign(state.tx.pick, { name: field('tx-name').value, amount: field('tx-amount').value, date: field('tx-date').value });
+}
+
+function txResult(text, cls) {
+  const box = document.getElementById('tx-results');
+  if (box) { box.innerHTML = ''; const line = document.createElement('div'); line.className = cls; line.textContent = text; box.appendChild(line); }
+}
+
+async function saveTx() {
+  if (!state.tx || !state.tx.details) return;
+  keepTyped();
+  const { details, pick } = state.tx;
+  const category = pick.category || details.category;
+  const request = details.manual
+    ? { kind: 'manual_save', id: details.manual_id, date: pick.date ?? details.date, description: (pick.name ?? details.name).trim(),
+        amount_text: pick.amount ?? details.amount_text, expense: details.amount < 0, category }
+    : { kind: 'recategorize', tx_hash: details.tx_hash, category, scope: pick.scope || 'one' };
+  const result = await backend.edit(request);
+  if (result.error) { txResult(result.error, 'neg'); return; }
+  const c = ctx();
+  afterEdit(result.undo, details.manual ? c.t.toastSaved : c.t.toastMoved(c.categoryName(category)));
+}
+
+async function deleteTx() {
+  if (!state.tx || !state.tx.details || !state.tx.details.manual) return;
+  const result = await backend.edit({ kind: 'manual_delete', id: state.tx.details.manual_id });
+  if (result.error) { txResult(result.error, 'neg'); return; }
+  afterEdit(result.undo, ctx().t.toastDeleted);
+}
+
+/** After an edit: every screen reloads (Home and the budget change at once), then a toast with Undo. */
+function afterEdit(undo, message) {
+  state.tx = null;
+  if (state.sheet) closeSheet();
+  state.data = {};
+  show(state.tab);
+  showToast(message, undo);
+  autoSync(true);
+}
+
+let toastTimer = null;
+let lastUndo = null;
+
+function showToast(message, undo) {
+  let box = document.getElementById('toast');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toast';
+    box.className = 'toast';
+    box.setAttribute('role', 'status');
+    document.body.appendChild(box);
+  }
+  lastUndo = undo || null;
+  box.innerHTML = `<span>${esc(message)}</span>${lastUndo ? `<button type="button" data-act="toast-undo">${esc(ctx().t.undo)}</button>` : ''}`;
+  box.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.hidden = true; lastUndo = null; }, 6000);
+}
+
+async function undoLast() {
+  const undo = lastUndo;
+  if (!undo) return;
+  lastUndo = null;
+  const result = await backend.edit(undo);
+  state.data = {};
+  show(state.tab);
+  showToast(result.error ? result.error : ctx().t.undone, null);
+  autoSync(true);
+}
+
 // ---- One click handler for the whole app
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-act]');
@@ -394,14 +508,20 @@ document.addEventListener('click', (event) => {
   else if (act === 'hide') { state.prefs.hide = !state.prefs.hide; savePrefs(); refreshAppearance(); }
   else if (act === 'filter') { state.ui.filter = arg; renderScreen(); }
   else if (act === 'group') { const open = state.ui.openGroup === undefined ? state.data.cat.open : state.ui.openGroup; state.ui.openGroup = open === arg ? null : arg; renderScreen(); }
-  else if (act === 'tx') {
-    const [item, day] = findTransaction(arg);
-    if (!item) return;
-    const view = activity.sheet(item, day, ctx());
-    const panel = document.getElementById('tx-panel');
-    if (desktop.matches && panel) panel.innerHTML = `<h2 class="title" style="font-size:22px;line-height:28px">${esc(view.title)}</h2>${view.body}`;
-    else openSheet({ kind: 'tx', ...view });
+  else if (act === 'tx') openTx(arg);
+  else if (act === 'tx-cat' && state.tx) {
+    keepTyped(); state.tx.pick.category = arg; renderTx();
+    // the next tap is the scope and Save: bring them into view (design.md §6: two taps and a Save)
+    const save = document.querySelector('[data-act="tx-save"]');
+    if (save) {
+      save.scrollIntoView({ block: 'end' }); // the scope options sit right above Save
+      (el.sheet.querySelector('.body') || document.getElementById('tx-panel'))?.scrollBy(0, 28); // clear of the bottom edge
+    }
   }
+  else if (act === 'tx-scope' && state.tx) { keepTyped(); state.tx.pick.scope = arg; renderTx(); }
+  else if (act === 'tx-save') saveTx();
+  else if (act === 'tx-delete') deleteTx();
+  else if (act === 'toast-undo') undoLast();
   else if (act === 'accounts') openAccounts();
   else if (act === 'import-pick') document.getElementById('import-input')?.click();
   else if (act === 'pack-receive') document.getElementById('pack-input')?.click();
@@ -444,7 +564,11 @@ desktop.addEventListener('change', () => { if (state.sheet && state.sheet.kind =
 applyTheme(state.prefs);
 show(state.tab);
 autoSync(true);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoSync(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (state.today && state.today !== localToday()) { state.data = {}; if (!state.sheet) show(state.tab); } // a new day
+  autoSync();
+});
 
 // On the phone the app keeps itself for offline use (sw.js is written by fin build-web).
 if (MODE === 'device' && 'serviceWorker' in navigator) {
