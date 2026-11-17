@@ -245,4 +245,21 @@ nav.tabs button[aria-current="page"] span { font-weight: 500; }
 .toast[hidden] { display: none; }
 .toast button { min-height: 36px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: inherit; font-size: 15px; font-weight: 600; text-decoration: underline; cursor: pointer; }
 @media (min-width: 1024px) { .toast { bottom: 24px; } }
+.note-line { font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-input { min-height: 64px; resize: vertical; font: inherit; line-height: 1.4; padding-block: 10px; }
+
+/* Activity filters: search, the date control and the range chip (design.md §6 "Date filters"). */
+.act-tools { display: flex; gap: 8px; align-items: center; }
+.search-input { flex: 1; min-width: 0; }
+.range-btn { flex: none; padding: 0 14px; white-space: nowrap; }
+.range-chip { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 4px 6px 4px 14px;
+  border-radius: 20px; background: var(--raise); box-shadow: 0 0 0 1px var(--line); font-size: 14px; }
+[dir="rtl"] .range-chip { padding: 4px 14px 4px 6px; }
+.chip-clear { min-width: 36px; min-height: 36px; border: 0; border-radius: 18px; background: var(--track); color: inherit; font-size: 15px; cursor: pointer; }
+
+/* The month picker on Home (design.md §6 "Month picker"). */
+.month-pill { align-self: flex-start; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: var(--track); color: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+.month-row[aria-pressed="true"] .name { font-weight: 600; }
+.hero-link { align-self: flex-start; margin-top: 12px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: rgba(255,255,255,.18); color: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.hero .status-label { position: absolute; inset-inline-end: 16px; top: 16px; padding: 4px 10px; border-radius: 12px; background: rgba(255,255,255,.16); font-size: 13px; font-weight: 600; }
 

@@ -62,7 +62,9 @@ function deviceBackend() {
     worker.postMessage({ id, op, args }, transfer);
   });
   async function get(screen, params = {}) {
-    const answer = await ask('call', { screen, months: Number(params.months || 2), today: params.today || '', tx: params.tx || '' });
+    const filters = {};
+    for (const key of ['preset', 'month', 'from', 'to', 'q']) if (params[key]) filters[key] = params[key];
+    const answer = await ask('call', { screen, months: Number(params.months || 2), today: params.today || '', tx: params.tx || '', filters: JSON.stringify(filters) });
     if (!answer.ok) throw new Error(answer.error);
     return answer.data;
   }

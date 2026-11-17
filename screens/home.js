@@ -24,6 +24,15 @@ function hero(data, ctx) {
   if (!budget) {
     return `<div class="hero"><span class="lead">${esc(t.noBudgetHint)}</span>${dataLine(data, ctx)}</div>`;
   }
+  if (budget.forecast) { // a future month: a forecast, neutral, no pace colour (design.md §6 "Month picker")
+    const parts = [budget.budget != null ? t.fcBudget(amtText(budget.budget)) : '', t.fcPayments(amtText(budget.payments))].filter(Boolean);
+    return `<div class="hero forecast"><span class="status-label">${esc(t.forecast)}</span>
+    <span class="lead">${esc(budget.free < 0 ? t.fcShort : t.fcFree)}</span>
+    ${bigAmount(Math.abs(budget.free))}
+    <span class="lead">${esc(parts.join(' · '))}</span>
+    <span class="lead note">${esc(t.fcBalance(amtText(budget.balance_end)))}</span>
+  </div>`;
+  }
   const p = budget.total;
   const over = p.left < 0;
   const m = Number(budget.month.split('-')[1]);
@@ -40,6 +49,17 @@ function hero(data, ctx) {
   const preview = budget.preview
     ? `<span class="lead note">${esc(t.preview(ctx.month(budget.start_month, true)))}</span>`
     : '';
+  if (budget.final) { // a past month: the final result, no daily allowance (design.md §6 "Month picker")
+    return `<div class="hero"${style}>${status}
+    <span class="lead">${esc(over ? t.finalOver : t.finalLeft)}</span>
+    ${bigAmount(Math.abs(p.left))}
+    <span class="lead">${esc(t.finalSpent(amtText(p.spent), amtText(p.ceiling)))}</span>
+    <div class="month"><div class="track"><div class="line"></div><div class="done" style="width:${fill}%"></div></div>
+      <div class="ends"><span>${esc(t.dayMonth(1, short))}</span><span>${esc(t.finalMonth)}</span>
+        <span>${esc(t.dayMonth(p.days_in_month, short))}</span></div></div>
+    <button type="button" class="hero-link" data-act="month-transactions" data-arg="${esc(budget.month)}">${esc(t.seeTransactions)}</button>
+  </div>`;
+  }
   return `<div class="hero"${style}>${status}
     <span class="lead">${esc(over ? t.qOver : t.q1)}</span>
     ${bigAmount(Math.abs(p.left))}
@@ -54,6 +74,21 @@ function hero(data, ctx) {
     ${dataLine(data, ctx)}
     ${preview}
   </div>`;
+}
+
+/** The month picker's pill under the greeting: "November 2026 ⌄". */
+function monthPill(data, ctx) {
+  if (!data.months || data.months.length < 2) return '';
+  return `<button type="button" class="month-pill" data-act="month-open" aria-haspopup="dialog">${esc(ctx.month(data.selected, true))} ⌄</button>`;
+}
+
+/** The list of months: the current one, then the past months that have data. */
+export function monthSheet(data, ctx) {
+  const { t } = ctx;
+  const rows = data.months.map((m) => `<button type="button" class="row month-row" data-act="month-pick" data-arg="${esc(m.month)}" aria-pressed="${m.month === data.selected}">
+      <span class="main name">${esc(ctx.month(m.month, true))}</span>
+      <span class="muted" style="font-size:14px">${esc({ current: t.monthNow, past: t.monthFinal, forecast: t.forecast }[m.kind])}</span></button>`).join('');
+  return { title: t.monthTitle, body: `<div class="card">${rows}</div>` };
 }
 
 function overview(data, ctx) {
@@ -103,7 +138,7 @@ function coming(data, ctx) {
 
 function groups(data, ctx) {
   const budget = data.budget;
-  if (!budget) return '';
+  if (!budget || budget.forecast) return ''; // a forecast has ceilings, not spending against them
   const rows = Object.entries(budget.buckets).map(([name, p]) => {
     const key = ctx.bucketKey(name);
     return `<div class="row" style="min-height:64px">${tile(key, bucketIcon(key))}
@@ -119,7 +154,8 @@ function groups(data, ctx) {
 export function render(data, ctx) {
   return `<div class="screen home">
     <div class="col-main">
-      <section class="group o-hero" style="gap:12px"><h1 class="label greet">${esc(greeting(ctx.t))}</h1>${hero(data, ctx)}</section>
+      <section class="group o-hero" style="gap:12px"><h1 class="label greet">${esc(greeting(ctx.t))}</h1>
+        ${monthPill(data, ctx)}${hero(data, ctx)}</section>
       ${groups(data, ctx)}
       <div class="o-coming">${coming(data, ctx)}</div>
     </div>

@@ -62,7 +62,7 @@ self.onmessage = async (event) => {
     const { py, device } = await ready;
     let text;
     if (op === 'call') {
-      text = device.call(DATA, args.screen, args.months, args.today || '', args.tx || '');
+      text = device.call(DATA, args.screen, args.months, args.today || '', args.tx || '', args.filters || '');
     } else if (op === 'import') {
       const path = `/tmp/upload-${id}`;
       py.FS.writeFile(path, args.bytes);

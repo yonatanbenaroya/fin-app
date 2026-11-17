@@ -92,6 +92,39 @@ function localToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** The Activity filters the engine applies: a date range and a search (design.md §6). */
+function activityParams() {
+  const params = {};
+  const range = state.ui.range;
+  if (range) Object.assign(params, range);
+  if (state.ui.q) params.q = state.ui.q;
+  return params;
+}
+
+/** Reload Activity with the current filters, keeping the search field's focus and caret. */
+async function reloadActivity() {
+  const field = document.getElementById('act-q');
+  const typing = field && document.activeElement === field;
+  const caret = typing ? field.selectionStart : null;
+  try {
+    state.data.act = await backend.get('activity', { today: localToday(), ...activityParams() });
+  } catch (error) {
+    state.data.act = error instanceof Error ? error : new Error(String(error));
+  }
+  if (state.tab !== 'act') return;
+  renderScreen();
+  const again = document.getElementById('act-q');
+  if (typing && again) { again.focus(); again.setSelectionRange(caret, caret); }
+}
+
+function setRange(range) {
+  state.ui.range = range;
+  if (state.sheet && state.sheet.kind === 'range') closeSheet();
+  reloadActivity();
+}
+
+let searchTimer = null;
+
 async function show(tab) {
   state.tab = tab;
   history.replaceState(null, '', `#${tab}`);
@@ -100,7 +133,8 @@ async function show(tab) {
   if (API[tab]) {
     try {
       state.today = localToday();
-      state.data[tab] = await backend.get(API[tab], { today: state.today });
+      const extra = tab === 'act' ? activityParams() : tab === 'home' && state.ui.homeMonth ? { month: state.ui.homeMonth } : {};
+      state.data[tab] = await backend.get(API[tab], { today: state.today, ...extra });
     } catch (error) {
       state.data[tab] = error instanceof Error ? error : new Error(String(error));
     }
@@ -428,8 +462,9 @@ function renderTx() {
 /** Keep what was typed in a manual transaction's fields when the sheet is drawn again. */
 function keepTyped() {
   const field = (id) => document.getElementById(id);
-  if (!state.tx || !field('tx-name')) return;
-  Object.assign(state.tx.pick, { name: field('tx-name').value, amount: field('tx-amount').value, date: field('tx-date').value });
+  if (!state.tx) return;
+  if (field('tx-note')) state.tx.pick.note = field('tx-note').value;
+  if (field('tx-name')) Object.assign(state.tx.pick, { name: field('tx-name').value, amount: field('tx-amount').value, date: field('tx-date').value });
 }
 
 function txResult(text, cls) {
@@ -442,14 +477,22 @@ async function saveTx() {
   keepTyped();
   const { details, pick } = state.tx;
   const category = pick.category || details.category;
-  const request = details.manual
-    ? { kind: 'manual_save', id: details.manual_id, date: pick.date ?? details.date, description: (pick.name ?? details.name).trim(),
-        amount_text: pick.amount ?? details.amount_text, expense: details.amount < 0, category }
-    : { kind: 'recategorize', tx_hash: details.tx_hash, category, scope: pick.scope || 'one' };
-  const result = await backend.edit(request);
+  const moved = category !== details.category;
+  const parts = [];
+  if (details.manual) {
+    parts.push({ kind: 'manual_save', id: details.manual_id, date: pick.date ?? details.date, description: (pick.name ?? details.name).trim(),
+      amount_text: pick.amount ?? details.amount_text, expense: details.amount < 0, category });
+  } else if (moved) {
+    parts.push({ kind: 'recategorize', tx_hash: details.tx_hash, category, scope: pick.scope || 'one' });
+  }
+  const note = (pick.note ?? details.note ?? '').trim();
+  if (note !== (details.note || '')) parts.push({ kind: 'note', tx_hash: details.tx_hash, text: note });
+  if (!parts.length) { if (state.sheet) closeSheet(); state.tx = null; return; } // nothing changed
+  const result = await backend.edit(parts.length === 1 ? parts[0] : { kind: 'batch', edits: parts });
   if (result.error) { txResult(result.error, 'neg'); return; }
   const c = ctx();
-  afterEdit(result.undo, details.manual ? c.t.toastSaved : c.t.toastMoved(c.categoryName(category)));
+  const message = details.manual ? c.t.toastSaved : moved ? c.t.toastMoved(c.categoryName(category)) : c.t.toastNote;
+  afterEdit(result.undo, message);
 }
 
 async function deleteTx() {
@@ -522,6 +565,24 @@ document.addEventListener('click', (event) => {
   else if (act === 'tx-save') saveTx();
   else if (act === 'tx-delete') deleteTx();
   else if (act === 'toast-undo') undoLast();
+  else if (act === 'month-open' && state.data.home && state.data.home.months) openSheet({ kind: 'month', ...home.monthSheet(state.data.home, ctx()) });
+  else if (act === 'month-pick') {
+    const current = state.data.home && state.data.home.current_month;
+    state.ui.homeMonth = arg === current ? null : arg; // kept while moving between tabs; reset when the app opens
+    closeSheet();
+    delete state.data.home;
+    show('home');
+  }
+  else if (act === 'month-transactions') { state.ui.range = { preset: 'month', month: arg }; delete state.data.act; show('act'); }
+  else if (act === 'range-open') openSheet({ kind: 'range', ...activity.rangeSheet(state.ui.range, ctx()) });
+  else if (act === 'range-set') setRange({ preset: arg });
+  else if (act === 'range-clear') setRange(null);
+  else if (act === 'range-month') { const m = document.getElementById('range-month').value; if (m) setRange({ preset: 'month', month: m }); }
+  else if (act === 'range-custom') {
+    const from = document.getElementById('range-from').value;
+    const to = document.getElementById('range-to').value;
+    if (from && to) setRange({ preset: 'custom', from, to });
+  }
   else if (act === 'accounts') openAccounts();
   else if (act === 'import-pick') document.getElementById('import-input')?.click();
   else if (act === 'pack-receive') document.getElementById('pack-input')?.click();
@@ -546,6 +607,11 @@ document.addEventListener('submit', (event) => {
 
 document.addEventListener('input', (event) => {
   const target = event.target;
+  if (target.id === 'act-q') { // search waits for a short pause in typing
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { state.ui.q = target.value.trim(); reloadActivity(); }, 300);
+    return;
+  }
   if (target.dataset.act === 'slider') {
     state.prefs[target.dataset.arg] = Number(target.value);
     savePrefs();

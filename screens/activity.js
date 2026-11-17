@@ -19,7 +19,8 @@ export function render(data, ctx, ui) {
       return `<button type="button" class="row" data-act="tx" data-arg="${item.id}" data-tx="${esc(item.tx)}">
         ${tile(item.bucket, categoryIcon(item.category, item.bucket))}
         <div class="main"><span class="name">${esc(item.name)}</span>
-          <span class="sub">${esc(ctx.categoryName(item.category))} · ${esc(ctx.sourceName(item.source))}</span></div>
+          <span class="sub">${esc(ctx.categoryName(item.category))} · ${esc(ctx.sourceName(item.source))}</span>
+          ${item.note ? `<span class="sub note-line">${esc(item.note)}</span>` : ''}</div>
         <span class="value small${income ? ' pos' : ''}">${amt(item.amount, { sign: income ? 'plus' : 'none' })}</span>
       </button>`;
     }).join('');
@@ -31,13 +32,61 @@ export function render(data, ctx, ui) {
       <div class="card">${rows}</div></section>`;
   }).join('');
   return `<div class="screen">
-    <div class="title-block"><h1 class="title">${esc(t.actTitle)}</h1><span class="subtitle">${esc(range)}</span></div>
+    <div class="title-block"><h1 class="title">${esc(t.actTitle)}</h1><span class="subtitle">${esc(data.range && data.range.from ? rangeLabel(ui.range, data.range, ctx) : range)}</span></div>
     <div class="act-grid"><div class="act-list">
+      <div class="act-tools">
+        <input type="search" id="act-q" class="text-input search-input" value="${esc(ui.q || '')}" placeholder="${esc(t.searchHint)}" aria-label="${esc(t.searchHint)}" enterkeyhint="search">
+        <button type="button" class="btn-soft range-btn" data-act="range-open" aria-haspopup="dialog">${esc(ui.range ? rangeLabel(ui.range, data.range, ctx) : t.rangeAny)} ⌄</button>
+      </div>
+      ${rangeChip(data.range, ui, ctx)}
       <div class="seg">${filters}</div>
-      ${days || `<div class="card"><div class="empty">—</div></div>`}
+      ${days || `<div class="card"><div class="empty">${esc(data.range ? t.noneInRange : '—')}</div></div>`}
     </div>
     <aside class="tx-panel" id="tx-panel"><div class="card"><div class="empty">${esc(t.txPick)}</div></div></aside></div>
   </div>`;
+}
+
+/** The chosen range in words: a preset's name, a month, or "12.10 – 3.11". */
+function rangeLabel(range, totals, ctx) {
+  const { t } = ctx;
+  if (!range) return t.rangeAny;
+  if (range.preset === 'month') return ctx.month(range.month, true);
+  if (range.preset === 'custom' && totals && totals.from) {
+    const short = (iso) => { const [, m, d] = iso.split('-'); return `${Number(d)}.${Number(m)}`; };
+    return `${short(totals.from)} – ${short(totals.to)}`;
+  }
+  return t.rangePresets[range.preset] || '';
+}
+
+/** The range's (or search's) totals from the engine, and one tap to clear it. */
+function rangeChip(totals, ui, ctx) {
+  const { t } = ctx;
+  if (!totals) return '';
+  const filter = ui.filter || 'all';
+  const parts = [];
+  if (filter !== 'in') parts.push(t.rangeOut(amtText(totals.out)));
+  if (filter !== 'out') parts.push(t.rangeIn(amtText(totals.in)));
+  const clear = ui.range ? `<button type="button" class="chip-clear" data-act="range-clear" aria-label="${esc(t.rangeClear)}">✕</button>` : '';
+  return `<div class="range-chip"><span>${esc(t.rangeCount(totals.count))} · ${esc(parts.join(' · '))}</span>${clear}</div>`;
+}
+
+/** The date filter sheet: presets, one month, or a custom from-to. */
+export function rangeSheet(range, ctx) {
+  const { t } = ctx;
+  const presets = ['this_month', 'last_month', 'last_3_months', 'this_year'].map((key) =>
+    `<button type="button" class="cat-chip" aria-pressed="${!!range && range.preset === key}" data-act="range-set" data-arg="${key}">${esc(t.rangePresets[key])}</button>`).join('');
+  return {
+    title: t.rangeTitle,
+    body: `<div class="cat-chips">${presets}</div>
+      <div class="field"><span class="flabel">${esc(t.rangeMonth)}</span>
+        <div class="pack-form"><input type="month" id="range-month" class="text-input" dir="ltr" value="${esc(range && range.preset === 'month' ? range.month : '')}" aria-label="${esc(t.rangeMonth)}">
+        <button type="button" class="btn-soft" data-act="range-month">${esc(t.rangeShow)}</button></div></div>
+      <div class="field"><span class="flabel">${esc(t.rangeCustom)}</span>
+        <div class="pack-form"><input type="date" id="range-from" class="text-input" dir="ltr" value="${esc(range && range.from || '')}" aria-label="${esc(t.rangeFrom)}">
+        <input type="date" id="range-to" class="text-input" dir="ltr" value="${esc(range && range.to || '')}" aria-label="${esc(t.rangeTo)}"></div>
+        <button type="button" class="btn-primary" data-act="range-custom">${esc(t.rangeShow)}</button></div>
+      ${range ? `<button type="button" class="btn-soft" data-act="range-clear">${esc(t.rangeClear)}</button>` : ''}`,
+  };
 }
 
 const SCOPES = ['one', 'merchant', 'merchant_amount'];
@@ -80,10 +129,12 @@ export function sheet(item, day, ctx, details = null, pick = {}) {
       <input id="tx-amount" class="text-input" inputmode="decimal" dir="ltr" value="${esc(pick.amount ?? details.amount_text)}" aria-label="${esc(t.txAmount)}" placeholder="${esc(t.txAmount)}">
       <input id="tx-date" class="text-input" type="date" dir="ltr" value="${esc(pick.date ?? details.date)}" aria-label="${esc(t.txDate)}">
     </form>` : `<span class="muted tx-note">${esc(t.txFromBank)}</span>`;
-  const save = `<button type="button" class="btn-primary" data-act="tx-save"${changed || details.manual ? '' : ' disabled'}>${esc(t.txSave)}</button>`;
+  const note = `<div class="field"><span class="flabel">${esc(t.txNote)}</span>
+      <textarea id="tx-note" class="text-input note-input" rows="2" maxlength="500" placeholder="${esc(t.txNoteHint)}" aria-label="${esc(t.txNote)}">${esc(pick.note ?? details.note ?? '')}</textarea></div>`;
+  const save = `<button type="button" class="btn-primary" data-act="tx-save">${esc(t.txSave)}</button>`;
   const remove = details.manual ? `<button type="button" class="btn-soft" data-act="tx-delete">${esc(t.txDelete)}</button>` : '';
   return {
     title: details.name,
-    body: `${head}${manual}<div id="tx-results" class="results" aria-live="polite"></div>${picker}${scope}${save}${remove}`,
+    body: `${head}${manual}${note}<div id="tx-results" class="results" aria-live="polite"></div>${picker}${scope}${save}${remove}`,
   };
 }
