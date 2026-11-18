@@ -261,6 +261,7 @@ nav.tabs button[aria-current="page"] span { font-weight: 500; }
 .month-pill { align-self: flex-start; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: var(--track); color: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
 .month-row[aria-pressed="true"] { background: var(--soft); }
 .month-row[aria-pressed="true"] .name { font-weight: 600; }
+.hero-due { align-self: flex-start; min-height: 32px; padding: 0; margin-top: -2px; border: 0; background: none; color: var(--hero-sub); font: inherit; font-size: 14px; text-decoration: underline; text-decoration-color: rgba(255,255,255,.35); text-underline-offset: 3px; cursor: pointer; }
 .hero-link { align-self: flex-start; margin-top: 12px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: rgba(255,255,255,.18); color: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
 .hero .status-label { position: absolute; inset-inline-end: 16px; top: 16px; padding: 4px 10px; border-radius: 12px; background: rgba(255,255,255,.16); font-size: 13px; font-weight: 600; }
 
@@ -347,3 +348,14 @@ nav.tabs .rail-set { display: none; }
 @media (min-width: 1024px) { .screen.narrow-760 .nw-chart { height: 90px; } }
 .nw-card .big { font-size: 44px; line-height: 48px; }
 .nw-card .big .sym { font-size: 18px; line-height: 20px; margin-top: 6px; }
+.greet-add { border: 0; background: none; padding: 0; font: inherit; color: var(--sub); cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--sub) 40%, transparent); text-underline-offset: 3px; }
+
+/* Categories editor, part two: a group's title opens it, the budget row with − and +. */
+.grp-title { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0 2px; color: inherit; cursor: pointer; min-height: 32px; }
+.bud-row { min-height: 52px; gap: 8px; }
+.bud-steps { display: flex; align-items: center; gap: 6px; flex: none; }
+.bud-steps .arrow { min-width: 36px; min-height: 36px; border: 0; border-radius: 10px; background: var(--track); color: inherit; cursor: pointer; font-size: 18px; }
+.bud-steps .arrow:disabled { opacity: .35; cursor: default; }
+.bud-value { min-width: 84px; min-height: 36px; border: 1px solid var(--hs); border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.cat-new { min-height: 48px; border: 0; background: none; color: var(--sub); font: inherit; cursor: pointer; justify-content: flex-start; width: 100%; }
+.btn-soft.small { min-height: 34px; padding: 4px 12px; font-size: 14px; width: auto; flex: none; }

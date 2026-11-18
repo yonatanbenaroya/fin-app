@@ -44,6 +44,7 @@ export class Ctx {
     this.en = T.en;
     this.labels = {};
     this.sources = {};
+    this.groupLabels = {};
   }
 
   /** "Nov 2026" (short) or "November 2026" (long) from "2026-11". */
@@ -70,7 +71,14 @@ export class Ctx {
     return `${this.t.weekdays[new Date(y, m - 1, d).getDay()]}, ${this.dayMonth(date)}`;
   }
 
-  bucketName(key) { return nameIn(this.t.buckets, key); }
+  /** A spending group's name: the user's own in this language (design.md §6), else the default. */
+  bucketName(key) {
+    const bucket = Object.keys(BUCKET_KEYS).find((b) => BUCKET_KEYS[b] === key);
+    const own = bucket && this.groupLabels[bucket] && this.groupLabels[bucket][this.lang];
+    return own || nameIn(this.t.buckets, key);
+  }
+  /** A group's default name in one language, before the user's own. */
+  defaultBucketName(key, lang) { return nameIn(T[lang].buckets, key); }
   /** The design's key for an engine bucket name (the engine's names are Hebrew). */
   bucketKey(name) { return BUCKET_KEYS[name] || 'other'; }
   /** The user's own name for a category in this language (design.md §13 item 8), else the

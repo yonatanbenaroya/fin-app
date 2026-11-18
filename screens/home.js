@@ -13,9 +13,12 @@ function greeting(t) {
   return hour < 12 ? t.greetMorning : hour < 17 ? t.greetAfternoon : t.greetEvening;
 }
 
-/** One line: the greeting, a comma and the user's name ("Good morning, Dana"); the greeting alone until a name exists. */
+/** One line: the greeting, a comma and the user's name ("Good morning, Dana"). Without a name the
+ *  name's place reads "Add your name" in the secondary colour and opens the name sheet (design.md §6). */
 function greet(data, t) {
-  return `<h1 class="label greet">${esc(data.name ? t.greetName(greeting(t), data.name) : greeting(t))}</h1>`;
+  if (data.name) return `<h1 class="label greet">${esc(t.greetName(greeting(t), data.name))}</h1>`;
+  if (!data.editable) return `<h1 class="label greet">${esc(greeting(t))}</h1>`;
+  return `<h1 class="label greet">${esc(t.greetName(greeting(t), ''))}<button type="button" class="greet-add" data-act="profile">${esc(t.profileAdd)}</button></h1>`;
 }
 
 /** One quiet line when the latest data is older than today (design.md §6 "Dates"): "Data up to 12.11". */
@@ -70,6 +73,7 @@ function hero(data, ctx) {
   return `<div class="hero"${style}>${status}
     <span class="lead">${esc(over ? t.qOver : t.q1)}</span>
     ${bigAmount(Math.abs(p.left))}
+    ${p.due > 0 ? `<button type="button" class="hero-due" data-act="due-open">${esc(t.dueLine(amtText(p.due)))}</button>` : ''}
     ${over ? '' : `<span class="lead">${esc(t.q3(Math.max(1, p.days_left)))}</span>`}
     <div class="chips">${over ? '' : `<span class="pace amt">${esc(t.paceFn(amtText(p.daily)))}</span>`}</div>
     <div class="month">
@@ -81,6 +85,16 @@ function hero(data, ctx) {
     ${dataLine(data, ctx)}
     ${preview}
   </div>`;
+}
+
+/** The payments held back from "left" (design.md §6 "What left means"), one row each. */
+export function dueSheet(budget, ctx) {
+  const { t } = ctx;
+  const rows = budget.due_rows.map((r) => `<div class="row">${tile(r.bucket, r.kind === 'card' ? 'card' : 'repeat')}
+      <div class="main"><span class="name">${esc(r.name)}</span><span class="sub">${esc(ctx.bucketName(r.bucket))}</span></div>
+      <span class="value small">${amt(r.amount)}</span></div>`).join('');
+  return { title: t.coming, body: `<span class="muted tx-note">${esc(t.dueNote(ctx.month(budget.month, true)))}</span>
+    <div class="card">${rows}</div>` };
 }
 
 /** The month picker's pill under the greeting: "November 2026 ⌄". */

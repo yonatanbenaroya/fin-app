@@ -2,7 +2,7 @@
 
 import { icon } from '../icons.js';
 import { ACCENTS, CARD_STYLES, PALETTES, SURFACES, accentColour, paletteSwatch } from '../theme.js';
-import { esc, tile } from '../ui.js';
+import { amt, esc, tile } from '../ui.js';
 
 const LANGS = [['he', 'עברית'], ['en', 'English']];
 
@@ -235,48 +235,153 @@ export function profileSheet(profile, ctx, first = false) {
 }
 
 
-// ---- Categories (design.md §13 item 8): a name per language and the order inside a group.
-// Colours come later. The key the ledger and the rules use never changes.
+// ---- Categories and budgets (design.md §6, editor parts one and two): names per language,
+// order, the budget per group, move, add, delete and restore. Colours come later. The keys
+// the ledger and the rules use never change; every number comes from the engine.
 const groupLabel = (g, ctx) => (g.kind === 'expense' ? ctx.bucketName(g.key) : ctx.t.kinds[g.kind] || g.kind);
+
+function budgetRow(g, ctx, editable) {
+  const { t } = ctx;
+  const value = g.budget == null ? `<span class="muted">${esc(t.catEdNoBudget)}</span>` : amt(g.budget);
+  if (!editable) return `<div class="row bud-row"><span class="main muted">${esc(t.catEdBudget)}</span><span class="value">${value}</span></div>`;
+  return `<div class="row bud-row"><span class="main muted">${esc(t.catEdBudget)}${g.rent ? ` · ${esc(t.catEdRent)}` : ''}</span>
+    <span class="bud-steps">
+      <button type="button" class="arrow" data-act="bud-step" data-arg="${esc(g.bucket)}|-1" aria-label="${esc(t.catEdLess)}"${!g.budget ? ' disabled' : ''}>−</button>
+      <button type="button" class="bud-value" data-act="bud-type" data-arg="${esc(g.bucket)}" aria-label="${esc(t.catEdType)}">${value}</button>
+      <button type="button" class="arrow" data-act="bud-step" data-arg="${esc(g.bucket)}|1" aria-label="${esc(t.catEdMore)}">+</button></span></div>`;
+}
 
 export function categoryEditorSheet(data, ctx) {
   const { t } = ctx;
-  if (!data || !data.editable) {
-    return { title: t.catEdTitle, body: `<span class="muted" style="font-size:15px;line-height:21px">${esc(t.catEdNeedsAccount)}</span>` };
-  }
-  const rows = (g) => g.categories.map((name, i) => `<div class="row cat-ed-row">
-      <button type="button" class="cat-ed-name" data-act="cat-name" data-arg="${esc(name)}">
-        <span class="name">${esc(ctx.categoryName(name))}</span>${icon('chevron', 14, 'class="chev" stroke-width="1.8"')}</button>
+  if (!data) return { title: t.catEdTitle, body: `<div class="empty">${esc(t.loadError)}</div>` };
+  const editable = data.editable;
+  const rows = (g) => g.categories.map((c, i) => `<div class="row cat-ed-row">
+      ${editable ? `<button type="button" class="cat-ed-name" data-act="cat-name" data-arg="${esc(c.name)}">
+        <span class="name">${esc(ctx.categoryName(c.name))}</span>${icon('chevron', 14, 'class="chev" stroke-width="1.8"')}</button>
       <span class="cat-ed-order">
-        <button type="button" class="arrow" data-act="cat-up" data-arg="${esc(name)}" aria-label="${esc(t.goalUp)}"${i === 0 ? ' disabled' : ''}>↑</button>
-        <button type="button" class="arrow" data-act="cat-down" data-arg="${esc(name)}" aria-label="${esc(t.goalDown)}"${i === g.categories.length - 1 ? ' disabled' : ''}>↓</button></span>
+        <button type="button" class="arrow" data-act="cat-up" data-arg="${esc(c.name)}" aria-label="${esc(t.goalUp)}"${i === 0 ? ' disabled' : ''}>↑</button>
+        <button type="button" class="arrow" data-act="cat-down" data-arg="${esc(c.name)}" aria-label="${esc(t.goalDown)}"${i === g.categories.length - 1 ? ' disabled' : ''}>↓</button></span>`
+    : `<span class="name">${esc(ctx.categoryName(c.name))}</span>`}
     </div>`).join('');
+  const head = (g) => (editable && g.kind === 'expense'
+    ? `<button type="button" class="grp-title" data-act="grp-open" data-arg="${esc(g.bucket)}"><span class="label">${esc(groupLabel(g, ctx))}</span>${icon('chevron', 12, 'class="chev" stroke-width="1.8"')}</button>`
+    : `<h3 class="label">${esc(groupLabel(g, ctx))}</h3>`);
+  const groups = data.groups.map((g) => `<section class="group">${head(g)}
+      <div class="card">${g.kind === 'expense' ? budgetRow(g, ctx, editable) : ''}${rows(g)}
+        ${editable && g.kind === 'expense' ? `<button type="button" class="row cat-new" data-act="cat-new" data-arg="${esc(g.bucket)}">+ ${esc(t.catEdNew)}</button>` : ''}</div></section>`).join('');
+  const deleted = editable && data.deleted.length ? `<section class="group"><h3 class="label">${esc(t.catEdDeleted)}</h3><div class="card">
+      ${data.deleted.map((d) => `<div class="row cat-ed-row"><span class="main"><span class="name">${esc(ctx.categoryName(d.name))}</span>
+        ${d.into ? `<span class="sub">${esc(t.catEdInto(ctx.categoryName(d.into)))}</span>` : ''}</span>
+        <button type="button" class="btn-soft small" data-act="cat-restore" data-arg="${esc(d.name)}">${esc(t.catEdRestore)}</button></div>`).join('')}
+    </div></section>` : '';
   return {
     title: t.catEdTitle,
-    body: `<span class="muted" style="font-size:14px;line-height:20px">${esc(t.catEdHint)}</span>
-      ${data.groups.map((g) => `<section class="group"><h3 class="label">${esc(groupLabel(g, ctx))}</h3>
-        <div class="card">${rows(g)}</div></section>`).join('')}`,
+    body: `<span class="muted" style="font-size:14px;line-height:20px">${esc(editable ? t.catEdHint : t.catEdNeedsAccount)}</span>
+      ${groups}${deleted}`,
   };
 }
 
-/** One category's names: Hebrew and English, each empty for the default. */
-export function categoryNameSheet(name, ctx, defaults) {
+const nameFields = (prefix, own, defaults, t) => ['he', 'en'].map((lang) => `<label class="field"><span class="flabel">${esc(lang === 'he' ? t.catEdHe : t.catEdEn)}</span>
+      <input id="${prefix}-${lang}" class="text-input" maxlength="40" lang="${lang}" dir="${lang === 'he' ? 'rtl' : 'ltr'}"
+        value="${esc(own[lang] || '')}" placeholder="${esc(defaults[lang])}"></label>`).join('');
+
+/** Where a category lives in the editor's data: its group and its own flags. */
+export function findCategory(data, name) {
+  for (const g of (data && data.groups) || []) {
+    const c = g.categories.find((x) => x.name === name);
+    if (c) return { group: g, category: c };
+  }
+  return null;
+}
+
+/** One category: its names, its group (spending ones), and Delete (with where its
+ *  transactions go, when it has any). `pickInto` shows the choice of a replacement. */
+export function categoryNameSheet(name, ctx, defaults, data, pickInto = false) {
   const { t } = ctx;
   const own = ctx.labels[name] || {};
-  const field = (lang, label) => `<label class="field"><span class="flabel">${esc(label)}</span>
-      <input id="cat-name-${lang}" class="text-input" maxlength="40" lang="${lang}" dir="${lang === 'he' ? 'rtl' : 'ltr'}"
-        value="${esc(own[lang] || '')}" placeholder="${esc(defaults[lang])}" aria-label="${esc(label)}"></label>`;
+  const found = findCategory(data, name);
   const changed = own.he || own.en;
+  let move = '';
+  if (found && found.group.kind === 'expense') {
+    move = `<div class="field"><span class="flabel">${esc(t.catEdGroup)}</span><div class="cat-chips">${data.groups.filter((g) => g.kind === 'expense').map((g) =>
+      `<button type="button" class="cat-chip" aria-pressed="${g.bucket === found.group.bucket}" data-act="cat-move" data-arg="${esc(g.bucket)}">${esc(groupLabel(g, ctx))}</button>`).join('')}</div></div>`;
+  }
+  let remove = '';
+  if (found && found.category.deletable) {
+    if (pickInto) {
+      const same = data.groups.filter((g) => g.kind === found.group.kind);
+      remove = `<div class="field"><span class="flabel">${esc(t.catEdWhere)}</span>
+        ${same.map((g) => `<span class="muted" style="font-size:13px">${esc(groupLabel(g, ctx))}</span><div class="cat-chips">${g.categories.filter((c) => c.name !== name).map((c) =>
+          `<button type="button" class="cat-chip" data-act="cat-del-into" data-arg="${esc(c.name)}">${esc(ctx.categoryName(c.name))}</button>`).join('')}</div>`).join('')}</div>`;
+    } else {
+      remove = `<button type="button" class="btn-soft" data-act="cat-del">${esc(t.catEdDelete)}</button>`;
+    }
+  }
   return {
     title: ctx.categoryName(name),
     body: `<form id="cat-name-form" class="pack-form" style="flex-direction:column;align-items:stretch">
-        ${field('he', t.catEdHe)}${field('en', t.catEdEn)}
+        ${nameFields('cat-name', own, defaults, t)}
         <span class="muted" style="font-size:13px">${esc(t.catEdNameHint)}</span>
         <button type="submit" class="btn-primary">${esc(t.txSave)}</button>
         ${changed ? `<button type="button" class="btn-soft" data-act="cat-reset">${esc(t.catEdReset)}</button>` : ''}
-        <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
       </form>
+      ${move}${remove}
+      <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
       <div id="cat-name-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+/** A spending group: its names, and Delete (its categories move to another group first). */
+export function groupSheet(bucket, ctx, defaults, data, pickInto = false) {
+  const { t } = ctx;
+  const g = data.groups.find((x) => x.bucket === bucket);
+  const own = ctx.groupLabels[bucket] || {};
+  let remove = '';
+  if (g.deletable) {
+    if (g.categories.length && pickInto) {
+      remove = `<div class="field"><span class="flabel">${esc(t.grpMoveAll(g.categories.length))}</span><div class="cat-chips">${data.groups.filter((x) => x.kind === 'expense' && x.bucket !== bucket).map((x) =>
+        `<button type="button" class="cat-chip" data-act="grp-del-into" data-arg="${esc(x.bucket)}">${esc(groupLabel(x, ctx))}</button>`).join('')}</div></div>`;
+    } else {
+      remove = `<button type="button" class="btn-soft" data-act="grp-del">${esc(t.grpDelete)}</button>`;
+    }
+  }
+  return {
+    title: groupLabel(g, ctx),
+    body: `<form id="grp-name-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        ${nameFields('grp-name', own, defaults, t)}
+        <span class="muted" style="font-size:13px">${esc(t.grpNameHint)}</span>
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button>
+      </form>
+      ${remove}
+      <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
+      <div id="grp-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+/** Typing a group's monthly budget (the steps of 100 are on the editor itself). */
+export function budgetSheet(g, ctx) {
+  const { t } = ctx;
+  return {
+    title: t.catEdBudgetOf(groupLabel(g, ctx)),
+    body: `<form id="bud-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        <input id="bud-amount" class="text-input" inputmode="decimal" dir="ltr" value="${esc(g.budget_text || '')}" placeholder="0" aria-label="${esc(t.catEdBudget)}">
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button></form>
+      <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
+      <div id="bud-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+/** A new category in a group: one name is enough. */
+export function newCategorySheet(g, ctx) {
+  const { t } = ctx;
+  return {
+    title: t.catEdNewIn(groupLabel(g, ctx)),
+    body: `<form id="cat-new-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        <input id="cat-new-name" class="text-input" maxlength="40" dir="auto" placeholder="${esc(t.catEdNewPh)}" aria-label="${esc(t.catEdNew)}">
+        <span class="muted" style="font-size:13px">${esc(t.catEdNewHint)}</span>
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button></form>
+      <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
+      <div id="cat-new-results" class="results" aria-live="polite"></div>`,
   };
 }
 

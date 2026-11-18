@@ -46,7 +46,7 @@ const el = {
   sheet: document.getElementById('sheet-root'),
 };
 
-function ctx() { const c = new Ctx(state.prefs); c.mode = MODE; c.syncAvailable = sync.available; c.profileName = state.profileName; c.labels = state.labels || {}; c.sources = state.sources || {}; return c; }
+function ctx() { const c = new Ctx(state.prefs); c.mode = MODE; c.syncAvailable = sync.available; c.profileName = state.profileName; c.labels = state.labels || {}; c.sources = state.sources || {}; c.groupLabels = state.groupLabels || {}; return c; }
 
 function savePrefs() {
   localStorage.setItem(PREFS_KEY, JSON.stringify(state.prefs));
@@ -670,6 +670,7 @@ async function loadProfile() {
     state.profileName = p.name || null;
     state.labels = p.labels || {};
     state.sources = p.sources || {};
+    state.groupLabels = p.group_labels || {};
     const label = document.getElementById('profile-name');
     if (label) label.textContent = p.name || ctx().t.profileAdd;
     return p;
@@ -728,12 +729,55 @@ async function openCategories(focusName = null) {
     .find((b) => b.dataset.arg === focusName && !b.disabled)?.focus();
 }
 
-function openCategoryName(name) {
+function openCategoryName(name, pickInto = false) {
   categoryNameOf = name;
   const c = ctx();
   const defaults = { he: c.defaultCategoryName(name, 'he'), en: c.defaultCategoryName(name, 'en') };
-  openSheet({ kind: 'category-name', ...settings.categoryNameSheet(name, c, defaults) });
-  document.getElementById(`cat-name-${c.lang}`)?.focus();
+  openSheet({ kind: 'category-name', ...settings.categoryNameSheet(name, c, defaults, categoryData, pickInto) });
+  if (!pickInto) document.getElementById(`cat-name-${c.lang}`)?.focus();
+}
+
+// The editor's part two (design.md §6): every change reopens the editor with an Undo toast.
+let groupOf = null;
+
+async function editorEdit(request, message) {
+  const result = await backend.edit(request);
+  if (result.error) { showToast(result.error, null); return; }
+  state.data = {}; state.labels = undefined;
+  await openCategories(request.category || null);
+  showToast(message, result.undo);
+  autoSync(true);
+}
+
+function editorGroup(bucket) {
+  return categoryData && categoryData.groups.find((g) => g.bucket === bucket);
+}
+
+function openGroup(bucket, pickInto = false) {
+  groupOf = bucket;
+  const c = ctx();
+  const g = editorGroup(bucket);
+  const defaults = { he: c.defaultBucketName(g.key, 'he'), en: c.defaultBucketName(g.key, 'en') };
+  openSheet({ kind: 'group', ...settings.groupSheet(bucket, c, defaults, categoryData, pickInto) });
+}
+
+function deleteCategory() {
+  const found = settings.findCategory(categoryData, categoryNameOf);
+  if (!found) return;
+  if (found.category.used) { openCategoryName(categoryNameOf, true); return; }
+  editorEdit({ kind: 'category_delete', category: categoryNameOf }, ctx().t.toastDeleted);
+}
+
+function deleteGroup() {
+  const g = editorGroup(groupOf);
+  if (!g) return;
+  if (g.categories.length) { openGroup(groupOf, true); return; }
+  editorEdit({ kind: 'group_delete', bucket: groupOf }, ctx().t.toastDeleted);
+}
+
+function saveGroupName() {
+  const value = (lang) => document.getElementById(`grp-name-${lang}`).value.trim();
+  editorEdit({ kind: 'group_label', bucket: groupOf, he: value('he'), en: value('en') }, ctx().t.toastCatName);
 }
 
 async function saveCategoryName(reset) {
@@ -988,6 +1032,16 @@ document.addEventListener('click', (event) => {
   else if (act === 'toast-undo') undoLast();
   else if (act === 'profile') openProfile();
   else if (act === 'cat-editor') openCategories();
+  else if (act === 'cat-move') editorEdit({ kind: 'category_group', category: categoryNameOf, bucket: arg }, ctx().t.toastMovedGroup);
+  else if (act === 'cat-del') deleteCategory();
+  else if (act === 'cat-del-into') editorEdit({ kind: 'category_delete', category: categoryNameOf, into: arg }, ctx().t.toastDeleted);
+  else if (act === 'cat-restore') editorEdit({ kind: 'category_restore', category: arg }, ctx().t.toastRestored);
+  else if (act === 'cat-new') { groupOf = arg; openSheet({ kind: 'cat-new', ...settings.newCategorySheet(editorGroup(arg), ctx()) }); document.getElementById('cat-new-name')?.focus(); }
+  else if (act === 'grp-open') openGroup(arg);
+  else if (act === 'grp-del') deleteGroup();
+  else if (act === 'grp-del-into') editorEdit({ kind: 'group_delete', bucket: groupOf, into: arg }, ctx().t.toastDeleted);
+  else if (act === 'bud-step') { const [bucket, step] = arg.split('|'); editorEdit({ kind: 'budget_ceiling', bucket, step: Number(step) }, ctx().t.toastSaved); }
+  else if (act === 'bud-type') { groupOf = arg; openSheet({ kind: 'budget', ...settings.budgetSheet(editorGroup(arg), ctx()) }); document.getElementById('bud-amount')?.focus(); }
   else if (act === 'sav-open') openHolding(savingRow(arg));
   else if (act === 'sav-add') openHolding(null, 'pension');
   else if (act === 'sav-kind') pickHoldingKind(arg);
@@ -1011,6 +1065,9 @@ document.addEventListener('click', (event) => {
   else if (act === 'coming-hide') hideComing();
   else if (act === 'coming-delete') deleteComing();
   else if (act === 'cf-dir') { state.comingDir = arg; target.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === target))); }
+  else if (act === 'due-open' && state.data.home && state.data.home.budget) {
+    openSheet({ kind: 'due', ...home.dueSheet(state.data.home.budget, ctx()) });
+  }
   else if (act === 'month-open' && state.data.home && state.data.home.months) {
     openSheet({ kind: 'month', ...home.monthSheet(state.data.home, ctx()) });
     // the month being viewed sits in the middle, earlier months above, later below (design.md §6)
@@ -1061,6 +1118,9 @@ document.addEventListener('submit', (event) => {
   else if (event.target.id === 'add-form') saveAdd();
   else if (event.target.id === 'cat-name-form') saveCategoryName(false);
   else if (event.target.id === 'map-form') saveMap();
+  else if (event.target.id === 'grp-name-form') saveGroupName();
+  else if (event.target.id === 'cat-new-form') editorEdit({ kind: 'category_add', bucket: groupOf, name: document.getElementById('cat-new-name').value }, ctx().t.toastAdded);
+  else if (event.target.id === 'bud-form') editorEdit({ kind: 'budget_ceiling', bucket: groupOf, amount_text: document.getElementById('bud-amount').value }, ctx().t.toastSaved);
   else if (event.target.id === 'sav-form') savingEdit(savings.holdingRequest(holding.row, holding.kind, el.sheet), ctx().t.toastSaved);
 });
 
