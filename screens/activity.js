@@ -102,6 +102,10 @@ export function sheet(item, day, ctx, details = null, pick = {}) {
   const head = `<span class="big amt${income ? ' pos' : ''}" dir="ltr" style="font-size:56px;line-height:60px;letter-spacing:-0.045em">${income ? '+' : '−'}<span class="sym" style="font-size:22px;line-height:24px;margin-top:9px;color:var(--sub)">₪</span>${Math.round(Math.abs(item.amount) / 100).toLocaleString('en-US')}</span>
       <div class="card">
         <div class="row" style="min-height:52px"><span class="main muted" style="font-size:15px">${esc(t.txDate)}</span><span>${esc(ctx.dayLabel(day))}</span></div>
+        ${details && details.installment ? `<div class="row" style="min-height:52px"><span class="main muted" style="font-size:15px">${esc(t.txInstallment)}</span>
+          <span>${esc(t.txOf(details.installment.number, details.installment.of))}</span></div>
+        <div class="row" style="min-height:52px"><span class="main muted" style="font-size:15px">${esc(t.txBoughtCharged)}</span>
+          <span>${esc(`${ctx.dayMonth(details.installment.bought)} · ${ctx.dayMonth(details.installment.charged)}`)}</span></div>` : ''}
         <div class="row" style="min-height:52px"><span class="main muted" style="font-size:15px">${esc(t.txPaid)}</span><span>${esc(ctx.sourceName(item.source))}</span></div>
         <div class="row" style="min-height:52px"><span class="main muted" style="font-size:15px">${esc(t.txCat)}</span>
           <span>${esc(ctx.categoryName(item.category))}${item.bucket !== 'other' ? ` · ${esc(ctx.bucketName(item.bucket))}` : ''}</span></div>
