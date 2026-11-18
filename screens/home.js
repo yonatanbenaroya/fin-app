@@ -6,9 +6,16 @@ import { amt, amtText, bigAmount, bucketIcon, esc, tile } from '../ui.js';
 
 const LEVEL_ICONS = { on_track: 'check', fast: 'clock', over_pace: 'alert' };
 
+/** The greeting by the device clock (design.md §6): night 00-04, morning 05-11, afternoon 12-16, evening 17-23. */
 function greeting(t) {
   const hour = new Date().getHours();
-  return hour < 12 ? t.greetMorning : hour < 18 ? t.greetAfternoon : t.greetEvening;
+  if (hour < 5) return t.greetNight;
+  return hour < 12 ? t.greetMorning : hour < 17 ? t.greetAfternoon : t.greetEvening;
+}
+
+/** One line: the greeting, a comma and the user's name ("Good morning, Dana"); the greeting alone until a name exists. */
+function greet(data, t) {
+  return `<h1 class="label greet">${esc(data.name ? t.greetName(greeting(t), data.name) : greeting(t))}</h1>`;
 }
 
 /** One quiet line when the latest data is older than today (design.md §6 "Dates"): "Data up to 12.11". */
@@ -102,6 +109,10 @@ function overview(data, ctx) {
       <div class="main"><span class="name">${esc(negative ? t.od : t.bal)}</span>
         <span class="sub amt">${esc(note)}</span></div>
       <span class="value">${amt(Math.abs(data.balance), { sign: 'none' })}</span></div>
+    <button type="button" class="row" data-act="tab" data-arg="sav">${tile('transport', 'trend')}
+      <div class="main"><span class="name">${esc(t.nwTitle)}</span>
+        <span class="sub">${data.net_change ? `${amt(data.net_change, { sign: 'plus' })} ${esc(t.nwThisMonth)}` : esc(t.nwSame)}</span></div>
+      <span class="value">${amt(data.net_worth)}</span>${icon('chevron', 16, 'class="chev" stroke-width="1.8"')}</button>
   </div></section>`;
 }
 
@@ -121,19 +132,67 @@ function goals(data, ctx) {
   return `<section class="group"><h2 class="label">${esc(ctx.t.goals)}</h2><div class="card">${rows}</div></section>`;
 }
 
+/** Coming up (design.md §6): one row per real payment. The user's own entries open an edit
+ * sheet; a card charge can only be hidden as a duplicate; "+" adds a commitment. */
 function coming(data, ctx) {
-  if (!data.coming.length) return '';
   const { t } = ctx;
-  const rows = data.coming.map((c) => {
+  if (!data.coming.length && !data.editable) return '';
+  const rows = data.coming.map((c, index) => {
     const name = c.kind === 'fixed' ? ctx.bucketName(c.bucket)
-      : c.kind === 'commitment' ? `${ctx.categoryName(c.name)} · ${t.installment(c.number, c.of)}`
-        : c.name;
-    const look = c.kind === 'fixed' ? 'home' : c.kind === 'commitment' ? 'repeat' : 'card';
-    return `<div class="row">${tile(c.bucket, look)}
+      : c.kind === 'commitment' ? `${c.name} · ${t.installment(c.number, c.of)}` : c.name;
+    const look = { fixed: 'home', commitment: 'repeat', event: 'clock', card: 'card' }[c.kind] || 'card';
+    const inner = `${tile(c.bucket, look)}
       <div class="main"><span class="name">${esc(name)}</span><span class="sub">${esc(ctx.month(c.month))}</span></div>
-      <span class="value small">${amt(c.amount, { sign: 'none' })}</span></div>`;
+      <span class="value small${c.income ? ' pos' : ''}">${amt(c.amount, { sign: c.income ? 'plus' : 'none' })}</span>`;
+    const opens = data.editable && (c.id || c.kind === 'card');
+    return opens ? `<button type="button" class="row" data-act="coming-open" data-arg="${index}">${inner}</button>` : `<div class="row">${inner}</div>`;
   }).join('');
-  return `<section class="group"><h2 class="label">${esc(t.coming)}</h2><div class="card">${rows}</div></section>`;
+  const add = data.editable ? `<button type="button" class="row add-row" data-act="coming-add">
+      <span class="main name">${esc(t.comingAdd)}</span><span aria-hidden="true">+</span></button>` : '';
+  return `<section class="group"><h2 class="label">${esc(t.coming)}</h2><div class="card">${rows}${add}</div></section>`;
+}
+
+const field = (id, label, value, attrs = '') =>
+  `<label class="field"><span class="flabel">${esc(label)}</span><input id="${id}" class="text-input" value="${esc(value ?? '')}" ${attrs}></label>`;
+
+/** The edit sheet for a row of Coming up: a commitment, a dated event, or a card charge. */
+export function comingSheet(row, ctx) {
+  const { t } = ctx;
+  if (row && row.kind === 'card') {
+    return {
+      title: row.name,
+      body: `<span class="big amt" dir="ltr" style="font-size:44px">${amt(row.amount, { sign: 'none' })}</span>
+        <span class="muted tx-note">${esc(t.cardChargeNote(ctx.month(row.month, true)))}</span>
+        <button type="button" class="btn-soft" data-act="coming-hide">${esc(t.hideDuplicate)}</button>`,
+    };
+  }
+  if (row && row.kind === 'event') {
+    return {
+      title: row.name,
+      body: `<form id="coming-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        ${field('cf-name', t.cfLabel, row.name, 'maxlength="80"')}
+        ${field('cf-amount', t.cfAmount, row.amount_text, 'inputmode="decimal" dir="ltr"')}
+        ${field('cf-month', t.cfMonth, row.month, 'type="month" dir="ltr"')}
+        <div class="seg"><button type="button" aria-pressed="${!row.income}" data-act="cf-dir" data-arg="out">${esc(t.cfOut)}</button>
+          <button type="button" aria-pressed="${!!row.income}" data-act="cf-dir" data-arg="in">${esc(t.cfIn)}</button></div>
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button></form>
+        <div id="coming-results" class="results" aria-live="polite"></div>
+        <button type="button" class="btn-soft" data-act="coming-delete">${esc(t.txDelete)}</button>`,
+    };
+  }
+  const isNew = !row;
+  return {
+    title: isNew ? t.comingAdd : row.name,
+    body: `<form id="coming-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+      ${field('cf-name', t.cfName, row && row.name, 'maxlength="80"')}
+      ${field('cf-amount', t.cfMonthly, row && row.amount_text, 'inputmode="decimal" dir="ltr"')}
+      ${field('cf-from', t.cfFrom, row && row.from, 'type="month" dir="ltr"')}
+      ${field('cf-until', t.cfUntil, row && row.until, 'type="month" dir="ltr"')}
+      ${field('cf-count', t.cfCount, '', 'inputmode="numeric" dir="ltr"')}
+      <button type="submit" class="btn-primary">${esc(t.txSave)}</button></form>
+      <div id="coming-results" class="results" aria-live="polite"></div>
+      ${isNew ? '' : `<button type="button" class="btn-soft" data-act="coming-delete">${esc(t.txDelete)}</button>`}`,
+  };
 }
 
 function groups(data, ctx) {
@@ -154,7 +213,7 @@ function groups(data, ctx) {
 export function render(data, ctx) {
   return `<div class="screen home">
     <div class="col-main">
-      <section class="group o-hero" style="gap:12px"><h1 class="label greet">${esc(greeting(ctx.t))}</h1>
+      <section class="group o-hero" style="gap:12px">${greet(data, ctx.t)}
         ${monthPill(data, ctx)}${hero(data, ctx)}</section>
       ${groups(data, ctx)}
       <div class="o-coming">${coming(data, ctx)}</div>

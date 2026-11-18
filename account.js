@@ -14,6 +14,7 @@ const ENTRY_AAD = new TextEncoder().encode('fin log v1');
 const SNAPSHOT_AAD = new TextEncoder().encode('fin snapshot v1');
 const BUCKET = 'fin-sync';
 const SNAPSHOT_FILE = 'snapshot.bin';
+const PREVIOUS_SNAPSHOT_FILE = 'snapshot.prev.bin'; // kept by the Mac when it writes a new one
 const PULL_PAGE = 100;
 const DB_NAME = 'fin-account';
 const STORE = 'kv';
@@ -145,6 +146,44 @@ export async function login(email, password) {
   await Promise.all([kvPut('session', session), kvPut('dek', dek), kvPut('email', email.trim().toLowerCase()), kvPut('state', {})]);
 }
 
+const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // as fin.logic.invite
+
+/** "abcd efgh jkmn" -> "ABCD-EFGH-JKMN"; null when the text is not an invite code. */
+export function normalizeInvite(text) {
+  const bare = String(text || '').replace(/[\s\-_.]/g, '').toUpperCase();
+  if (bare.length !== 12 || [...bare].some((ch) => !INVITE_ALPHABET.includes(ch))) return null;
+  return `${bare.slice(0, 4)}-${bare.slice(4, 8)}-${bare.slice(8)}`;
+}
+
+const REGISTER_ERRORS = ['input', 'invite', 'exists', 'busy'];
+
+/** Create a new account from this phone (design.md §12 item 2) and sign in. The relay's
+ *  `register` function gets the derived auth secret, never the password; the vault is made
+ *  here. Returns the recovery code: show it once. `problem` checks the password's strength. */
+export async function register(email, password, invite, problem, backend) {
+  if (await problem(password)) throw new AccountError('weak');
+  const address = email.trim().toLowerCase();
+  const code = invite && invite.trim() ? normalizeInvite(invite) : '';
+  if (code === null) throw new AccountError('invite');
+  let keys;
+  try { keys = await vault.loginKeys(address, password); } catch { throw new AccountError('input'); }
+  const response = await call('/functions/v1/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: address, auth_secret: keys.authSecret, invite: code }),
+  });
+  if (!response.ok) {
+    const answer = await response.json().catch(() => ({}));
+    throw new AccountError(REGISTER_ERRORS.includes(answer.error) ? answer.error : 'relay');
+  }
+  const session = await token('password', { email: address, password: keys.authSecret });
+  const { record, recoveryCode } = await vault.createVault(keys.wrapKey);
+  await putVault(session, record);
+  const dek = await vault.openVault(record, keys.wrapKey); // kept as on sign-in
+  await backend.log.take([], await backend.log.position()); // the settings now live in the log
+  await Promise.all([kvPut('session', session), kvPut('dek', dek), kvPut('email', address), kvPut('state', {})]);
+  return recoveryCode;
+}
+
 export async function logout() {
   await Promise.all(['session', 'dek', 'email', 'state'].map(kvDel));
 }
@@ -194,6 +233,19 @@ export function round(backend) {
   return running;
 }
 
+/** The newest snapshot that opens: the latest, else the one before it; null when neither
+ *  does (the phone then reads the whole log, which the relay always keeps). */
+async function readSnapshot(session, dek) {
+  for (const name of [SNAPSHOT_FILE, PREVIOUS_SNAPSHOT_FILE]) {
+    const blob = await download(session, name);
+    if (!blob) continue;
+    try {
+      return await openJson(new TextDecoder().decode(blob), dek, SNAPSHOT_AAD);
+    } catch { /* damaged: try the previous one */ }
+  }
+  return null;
+}
+
 async function phoneRound(backend) {
   const [dek, previous] = await Promise.all([kvGet('dek'), kvGet('state')]);
   if (!SYNC || !dek || !(await kvGet('session'))) return status();
@@ -204,9 +256,8 @@ async function phoneRound(backend) {
     let changes = 0;
     let position = await backend.log.position();
     if (position === 0) {
-      const blob = await download(session, SNAPSHOT_FILE);
-      if (blob) {
-        const snapshot = await openJson(new TextDecoder().decode(blob), dek, SNAPSHOT_AAD);
+      const snapshot = await readSnapshot(session, dek);
+      if (snapshot) {
         const took = await backend.log.take([snapshot.entry], snapshot.upto);
         received += took.transactions;
         changes += took.changes;

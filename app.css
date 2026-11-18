@@ -29,7 +29,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 h1.title { margin: 0; font-family: var(--font-d); font-size: 32px; line-height: 38px; font-weight: 500; letter-spacing: var(--ls-t); }
 .subtitle { font-size: 15px; color: var(--sub); }
 .label { margin: 0; padding: 0 6px; font-size: 12.5px; line-height: 16px; font-weight: 500; letter-spacing: var(--ls-l); text-transform: var(--up); color: var(--sub); }
-.greet { padding: 0 4px; font-weight: 400; }
+.greet { padding: 0 4px; font-weight: 400; text-transform: none; letter-spacing: normal; }
 section.group { display: flex; flex-direction: column; gap: 8px; }
 .note { padding: 0 6px; font-size: 13px; line-height: 18px; color: var(--sub); }
 .empty { padding: 18px 16px; font-size: 15px; line-height: 21px; color: var(--sub); }
@@ -259,7 +259,91 @@ nav.tabs button[aria-current="page"] span { font-weight: 500; }
 
 /* The month picker on Home (design.md §6 "Month picker"). */
 .month-pill { align-self: flex-start; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: var(--track); color: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+.month-row[aria-pressed="true"] { background: var(--soft); }
 .month-row[aria-pressed="true"] .name { font-weight: 600; }
 .hero-link { align-self: flex-start; margin-top: 12px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: rgba(255,255,255,.18); color: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
 .hero .status-label { position: absolute; inset-inline-end: 16px; top: 16px; padding: 4px 10px; border-radius: 12px; background: rgba(255,255,255,.16); font-size: 13px; font-weight: 600; }
 
+/* The profile row in Settings. */
+.profile-card { display: flex; align-items: center; gap: 14px; padding: 16px; border: 0; width: 100%; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.profile-card .main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.profile-card .name { font-size: 17px; font-weight: 500; }
+.link-btn { border: 0; padding: 0 4px; background: none; color: var(--accent-ink, inherit); font: inherit; text-decoration: underline; cursor: pointer; }
+
+.scope-list[hidden] { display: none; }
+.add-row { color: var(--sub); }
+.add-row span[aria-hidden] { font-size: 22px; line-height: 1; }
+
+/* Goals: open by tap, reorder by the handle or the arrows (design.md §6 "Goals editing"). */
+.goal-list { display: flex; flex-direction: column; gap: inherit; }
+.goal-card[role="button"] { cursor: pointer; }
+.goal-card.dragging { position: relative; z-index: 5; box-shadow: 0 12px 30px rgba(0,0,0,.22); transition: none; }
+.goal-order { display: flex; align-items: center; gap: 2px; flex: none; }
+.goal-order .drag { min-width: 32px; min-height: 44px; border: 0; background: none; color: var(--sub); font-size: 16px; cursor: grab; touch-action: none; }
+.goal-order .arrow { display: none; min-width: 28px; min-height: 32px; border: 0; border-radius: 8px; background: var(--track); color: inherit; cursor: pointer; }
+.goal-order .arrow:disabled { opacity: .35; cursor: default; }
+@media (min-width: 1024px) { .goal-order .arrow { display: inline-block; } }
+
+/* The "+" and its sheet (design.md §11.2); a pending row's mark. */
+.topbar { gap: 8px; }
+.add-btn { font-size: 24px; line-height: 1; color: inherit; }
+.add-btn[hidden] { display: none; }
+.add-amount { font-size: 34px; font-weight: 300; text-align: center; min-height: 64px; }
+.pending { font-weight: 600; }
+
+
+/* Categories editor (design.md §13 item 8): one row per category, rename and arrows. */
+.cat-ed-row { min-height: 52px; gap: 8px; }
+.cat-ed-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 44px; border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; padding: 0; }
+.cat-ed-name .name { flex: 1; font-size: 16px; overflow-wrap: anywhere; }
+.cat-ed-order { display: flex; gap: 6px; flex: none; }
+.cat-ed-order .arrow { min-width: 36px; min-height: 36px; border: 0; border-radius: 10px; background: var(--track); color: inherit; cursor: pointer; font-size: 16px; }
+.cat-ed-order .arrow:disabled { opacity: .35; cursor: default; }
+
+/* Mapping an unknown export (design.md §12 item 9): one row per column, a role picker. */
+.map-form { display: flex; flex-direction: column; gap: 14px; }
+.map-col { min-height: 60px; gap: 10px; }
+.map-col .main { min-width: 0; }
+.map-col .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-role { flex: none; width: 44%; max-width: 200px; min-height: 40px; padding: 6px 10px; }
+.map-open { margin-inline-start: 8px; min-height: 32px; padding: 4px 12px; font-size: 14px; }
+.map-form [hidden] { display: none; }
+
+/* Creating an account on the phone (design.md §12 item 2). */
+.create-fields { display: flex; flex-direction: column; gap: 10px; }
+.create-fields[hidden] { display: none; }
+.check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; cursor: pointer; }
+.check-row input { width: 22px; height: 22px; flex: none; accent-color: var(--surface); }
+
+/* Settings behind the avatar (design.md §5): the avatar in the Home header, a "Home" link on
+   top of Settings, and Settings at the bottom of the desktop rail. */
+.avatar-btn { background: var(--surface); color: var(--on-surface); border-color: transparent; }
+.avatar-btn[hidden] { display: none; }
+.avatar-letter { font-size: 17px; font-weight: 500; line-height: 1; }
+.back-home { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 4px; border: 0; background: none; color: inherit; font: inherit; font-size: 16px; cursor: pointer; }
+.back-home .back-chev { transform: scaleX(-1); }
+[dir="rtl"] .back-home .back-chev { transform: none; }
+nav.tabs .rail-set { display: none; }
+@media (min-width: 1024px) {
+  nav.tabs .rail-set { display: flex; margin-top: auto; }
+  .back-home { display: none; }
+}
+
+/* Savings (design.md §5, board C14): the net worth card and the quarterly reminder. */
+.nw-card { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.nw-head { display: flex; flex-direction: column; gap: 4px; }
+.nw-change { font-size: 14px; }
+.nw-chart-box { display: flex; flex-direction: column; gap: 4px; color: var(--accent); }
+.nw-chart { width: 100%; height: 64px; display: block; }
+.nw-axis { display: flex; justify-content: space-between; font-size: 12px; }
+.nw-split { display: flex; flex-direction: column; gap: 8px; }
+.nw-split .bar { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.nw-split-rows { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+.nw-split-rows .dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-inline-end: 6px; vertical-align: middle; }
+.dot.lt { background: var(--accent); } .dot.acc { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.nw-note { font-size: 13px; line-height: 18px; }
+.sv-remind { padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; }
+.sav-form #hf-from-box[hidden] { display: none; }
+@media (min-width: 1024px) { .screen.narrow-760 .nw-chart { height: 90px; } }
+.nw-card .big { font-size: 44px; line-height: 48px; }
+.nw-card .big .sym { font-size: 18px; line-height: 20px; margin-top: 6px; }

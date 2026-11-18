@@ -42,6 +42,8 @@ export class Ctx {
     this.mode = 'server';
     this.t = T[prefs.lang];
     this.en = T.en;
+    this.labels = {};
+    this.sources = {};
   }
 
   /** "Nov 2026" (short) or "November 2026" (long) from "2026-11". */
@@ -71,10 +73,18 @@ export class Ctx {
   bucketName(key) { return nameIn(this.t.buckets, key); }
   /** The design's key for an engine bucket name (the engine's names are Hebrew). */
   bucketKey(name) { return BUCKET_KEYS[name] || 'other'; }
-  /** Engine category names are Hebrew; English looks them up, Hebrew shows them as they are. */
-  categoryName(name) { return name ? nameIn(this.t.categories, name) : ''; }
+  /** The user's own name for a category in this language (design.md §13 item 8), else the
+   *  default: engine keys are Hebrew; English looks them up, Hebrew shows them as they are. */
+  categoryName(name) {
+    if (!name) return '';
+    const own = this.labels[name] && this.labels[name][this.lang];
+    return own || nameIn(this.t.categories, name);
+  }
+  /** The default name of a category in one language, before the user's own. */
+  defaultCategoryName(name, lang) { return nameIn(T[lang].categories, name); }
   goalName(name) { return nameIn(this.t.goalNames, name); }
-  sourceName(source) { return nameIn(this.t.sources, source); }
+  /** A source's name: the known ones by language, a source mapped by hand by the user's name. */
+  sourceName(source) { return this.sources[source] || nameIn(this.t.sources, source); }
 }
 
 /** A coloured icon tile for a budget bucket. */

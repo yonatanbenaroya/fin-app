@@ -12,12 +12,13 @@ import * as activity from './screens/activity.js';
 import * as categories from './screens/categories.js';
 import * as goals from './screens/goals.js';
 import * as home from './screens/home.js';
+import * as savings from './screens/savings.js';
 import * as settings from './screens/settings.js';
 
 const PREFS_KEY = 'fin.prefs.v1';
-const TABS = [['home', 'tabHome', 'home'], ['act', 'tabAct', 'list'], ['cat', 'tabCat', 'pie'], ['goals', 'tabGoals', 'target'], ['set', 'tabSet', 'gear']];
-const API = { home: 'home', act: 'activity', cat: 'categories', goals: 'goals' };
-const SCREENS = { home, act: activity, cat: categories, goals };
+const TABS = [['home', 'tabHome', 'home'], ['act', 'tabAct', 'list'], ['cat', 'tabCat', 'pie'], ['goals', 'tabGoals', 'target'], ['sav', 'tabSav', 'wallet']];
+const API = { home: 'home', act: 'activity', cat: 'categories', goals: 'goals', sav: 'savings' };
+const SCREENS = { home, act: activity, cat: categories, goals, sav: savings };
 
 function loadPrefs() {
   try {
@@ -40,10 +41,12 @@ const el = {
   screen: document.getElementById('screen'),
   tabs: document.getElementById('tabs'),
   eye: document.getElementById('eye'),
+  add: document.getElementById('add'),
+  avatar: document.getElementById('avatar'),
   sheet: document.getElementById('sheet-root'),
 };
 
-function ctx() { const c = new Ctx(state.prefs); c.mode = MODE; c.syncAvailable = sync.available; return c; }
+function ctx() { const c = new Ctx(state.prefs); c.mode = MODE; c.syncAvailable = sync.available; c.profileName = state.profileName; c.labels = state.labels || {}; c.sources = state.sources || {}; return c; }
 
 function savePrefs() {
   localStorage.setItem(PREFS_KEY, JSON.stringify(state.prefs));
@@ -59,7 +62,20 @@ function renderTabs() {
     <button type="button" class="rail-lang" data-act="pref" data-arg="lang:${state.prefs.lang === 'he' ? 'en' : 'he'}">${esc(c.t.langToggle)}</button></div>`;
   el.tabs.innerHTML = railTop + TABS.map(([key, label, ic]) =>
     `<button type="button" data-act="tab" data-arg="${key}" aria-current="${state.tab === key ? 'page' : 'false'}">
-      ${icon(ic, 23)}<span>${esc(c.t[label])}</span></button>`).join('');
+      ${icon(ic, 23)}<span>${esc(c.t[label])}</span></button>`).join('')
+    // Settings is not a tab (design.md §5): on desktop it sits at the bottom of the rail.
+    + `<button type="button" class="rail-set" data-act="tab" data-arg="set" aria-current="${state.tab === 'set' ? 'page' : 'false'}">
+      ${icon('gear', 23)}<span>${esc(c.t.tabSet)}</span></button>`;
+  // On the phone Settings opens from the round avatar in the Home header, next to the eye.
+  el.avatar.hidden = state.tab !== 'home';
+  el.avatar.setAttribute('aria-label', c.t.tabSet);
+  el.avatar.title = c.t.tabSet;
+  const initial = (state.profileName || '').trim().charAt(0).toUpperCase();
+  el.avatar.innerHTML = initial ? `<span class="avatar-letter">${esc(initial)}</span>` : icon('users', 20, 'stroke-width="1.7"');
+  // The small "+" (design.md §11.2) sits next to the privacy eye on Home and Activity.
+  el.add.hidden = !['home', 'act'].includes(state.tab);
+  el.add.setAttribute('aria-label', c.t.addTitle);
+  el.add.title = c.t.addTitle;
   el.eye.setAttribute('aria-label', state.prefs.hide ? c.t.showLbl : c.t.hideLbl);
   el.eye.setAttribute('aria-pressed', String(!!state.prefs.hide));
   el.eye.innerHTML = icon(state.prefs.hide ? 'eyeOff' : 'eye', 22, 'stroke-width="1.7"');
@@ -71,6 +87,7 @@ function renderScreen() {
   if (state.tab === 'set') {
     el.screen.innerHTML = settings.render(c);
     updateSyncRow();
+    loadProfile();
     return;
   }
   const data = state.data[state.tab];
@@ -130,11 +147,13 @@ async function show(tab) {
   history.replaceState(null, '', `#${tab}`);
   el.scroll.scrollTop = 0;
   renderScreen();
+  if (state.labels === undefined) loadProfile().then((p) => { if (p && state.tab === tab) renderScreen(); });
   if (API[tab]) {
     try {
       state.today = localToday();
       const extra = tab === 'act' ? activityParams() : tab === 'home' && state.ui.homeMonth ? { month: state.ui.homeMonth } : {};
       state.data[tab] = await backend.get(API[tab], { today: state.today, ...extra });
+      if (tab === 'home' && state.data.home && 'name' in state.data.home) state.profileName = state.data.home.name;
     } catch (error) {
       state.data[tab] = error instanceof Error ? error : new Error(String(error));
     }
@@ -225,12 +244,22 @@ async function importFiles(files) {
     } catch {
       result = { error: c.t.loadError };
     }
-    const { text, cls } = settings.importLine(file.name, result, c);
+    const { text, cls, map } = settings.importLine(file.name, result, c);
     line.className = cls;
     line.textContent = text;
+    if (map) { // a file no adapter knows, with columns the user can map (design.md §12 item 9)
+      pendingMaps.push({ file: result.name, tables: result.preview.tables, table: 0 });
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn-soft map-open';
+      button.dataset.act = 'map-open';
+      button.dataset.arg = String(pendingMaps.length - 1);
+      button.textContent = c.t.mapOpen;
+      line.appendChild(button);
+    }
   }
   button.disabled = false;
-  state.data = {}; // every screen reloads with the new data
+  state.data = {}; state.labels = undefined; // every screen reloads with the new data
   autoSync(true);
   try {
     const rows = document.getElementById('accounts-rows');
@@ -245,11 +274,52 @@ document.addEventListener('change', (event) => {
     if (packFile) showPackForm('receive');
     return;
   }
+  if (event.target.id === 'code-saved') {
+    document.getElementById('first-run').disabled = !event.target.checked;
+    return;
+  }
   if (event.target.id === 'import-input') {
     importFiles([...event.target.files]);
     event.target.value = '';
   }
 });
+
+// ---- A source of my own: map the columns of an unknown export (design.md §12 item 9)
+const pendingMaps = [];
+let mapping = null;
+
+function openMap(index) {
+  mapping = pendingMaps[Number(index)];
+  if (!mapping) return;
+  openSheet({ kind: 'map', ...settings.mapSheet(mapping, ctx()) });
+}
+
+function mapSeg(arg) {
+  const [name, value] = arg.split(':');
+  for (const b of el.sheet.querySelectorAll(`[data-seg="${name}"] button`)) b.setAttribute('aria-pressed', String(b.dataset.arg === arg));
+  if (name === 'kind') document.getElementById('map-label-field').hidden = value !== 'card';
+}
+
+async function saveMap() {
+  const c = ctx();
+  const box = document.getElementById('map-results');
+  const fields = settings.mapFields(mapping, el.sheet);
+  mapping.name = fields.name;
+  const result = await backend.edit({ kind: 'source_map_save', ...(mapping.id ? { id: mapping.id } : {}), fields, file: mapping.file });
+  if (result.error) { box.className = 'results neg'; box.textContent = result.error; return; }
+  mapping.id = result.id;
+  const done = result.import || {};
+  if (done.status !== 'imported') { box.className = 'results neg'; box.textContent = c.t.mapRejected; return; }
+  state.data = {}; state.labels = undefined;
+  await loadProfile();
+  await openAccounts();
+  const results = document.getElementById('import-results');
+  if (results) {
+    results.className = 'results pos';
+    results.textContent = ctx().t.resImported(fields.name, done.rows_inserted, done.rows_duplicate);
+  }
+  autoSync(true);
+}
 
 // ---- Between devices: encrypted transfer files
 let packAction = null;
@@ -287,7 +357,7 @@ async function packGo() {
       else {
         packLine(c.t.packReceived(result.sender, result.transactions), 'pos');
         if (result.configs && result.configs.length) packLine(c.t.packConfigs, 'pos');
-        state.data = {};
+        state.data = {}; state.labels = undefined;
         const rows = document.getElementById('accounts-rows');
         if (rows) rows.innerHTML = settings.accountsRows(await backend.get('accounts'), c);
       }
@@ -333,7 +403,7 @@ function afterRound(status) {
   const came = status && (status.received || status.changes);
   if (came && !status.error && status.last_sync && status.last_sync !== state.lastMerged) {
     state.lastMerged = status.last_sync;
-    state.data = {};
+    state.data = {}; state.labels = undefined;
     if (state.tab !== 'set' && !state.sheet) show(state.tab);
   }
   updateSyncRow(status);
@@ -386,11 +456,56 @@ async function syncLogin() {
     await sync.login(email, password);
     document.getElementById('sync-password').value = '';
     await syncNow();
+    askNameOnce(); // the first sign-in asks what to call the user
   } catch (error) {
     syncResult(c.t.syncErr[error && error.code] || c.t.syncErr.failed, 'neg');
   } finally {
     button.disabled = false;
   }
+}
+
+// ---- A new account from the phone (design.md §12 item 2): the password never leaves it
+function syncMode() {
+  const c = ctx();
+  const form = document.getElementById('sync-form');
+  const create = form.dataset.create !== 'true';
+  form.dataset.create = String(create);
+  document.getElementById('sync-create').hidden = !create;
+  document.getElementById('sync-password').autocomplete = create ? 'new-password' : 'current-password';
+  document.getElementById('sync-login').textContent = create ? c.t.syncCreate : c.t.syncLogin;
+  document.getElementById('sync-mode').textContent = create ? c.t.syncToLogin : c.t.syncToCreate;
+  syncResult('', 'muted');
+}
+
+async function syncRegister() {
+  const c = ctx();
+  const value = (id) => document.getElementById(id).value;
+  const [email, password, again] = [value('sync-email').trim(), value('sync-password'), value('sync-again')];
+  if (!email || !password) { syncResult(c.t.syncFill, 'neg'); return; }
+  if (password !== again) { syncResult(c.t.syncMismatch, 'neg'); return; }
+  const button = document.getElementById('sync-login');
+  button.disabled = true;
+  syncResult(c.t.syncCreating, 'muted');
+  try {
+    const code = await sync.register(email, password, value('sync-invite'), backend.passwordProblem, backend);
+    ['sync-password', 'sync-again'].forEach((id) => { document.getElementById(id).value = ''; });
+    document.getElementById('sync-form').hidden = true;
+    const box = document.getElementById('sync-results');
+    box.innerHTML = settings.recoveryShown(code, c);
+  } catch (error) {
+    syncResult(c.t.syncErr[error && error.code] || c.t.syncErr.failed, 'neg');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** After the recovery code: the first run asks the name, then opens the import (design.md §12). */
+async function firstRun() {
+  state.firstRun = true;
+  closeSheet();
+  await syncNow().catch(() => {});
+  localStorage.setItem('fin.askedName', '1');
+  openProfile(true);
 }
 
 /** A new account password from this phone; the old one is not needed. */
@@ -464,6 +579,7 @@ function keepTyped() {
   const field = (id) => document.getElementById(id);
   if (!state.tx) return;
   if (field('tx-note')) state.tx.pick.note = field('tx-note').value;
+  if (field('tx-title')) state.tx.pick.title = field('tx-title').value;
   if (field('tx-name')) Object.assign(state.tx.pick, { name: field('tx-name').value, amount: field('tx-amount').value, date: field('tx-date').value });
 }
 
@@ -485,13 +601,17 @@ async function saveTx() {
   } else if (moved) {
     parts.push({ kind: 'recategorize', tx_hash: details.tx_hash, category, scope: pick.scope || 'one' });
   }
+  const title = (pick.title ?? details.name).trim();
+  const retitled = !details.manual && title && title !== details.name;
+  if (retitled) parts.push({ kind: 'retitle', tx_hash: details.tx_hash, title, scope: pick.titleScope || 'one' });
   const note = (pick.note ?? details.note ?? '').trim();
   if (note !== (details.note || '')) parts.push({ kind: 'note', tx_hash: details.tx_hash, text: note });
   if (!parts.length) { if (state.sheet) closeSheet(); state.tx = null; return; } // nothing changed
   const result = await backend.edit(parts.length === 1 ? parts[0] : { kind: 'batch', edits: parts });
   if (result.error) { txResult(result.error, 'neg'); return; }
   const c = ctx();
-  const message = details.manual ? c.t.toastSaved : moved ? c.t.toastMoved(c.categoryName(category)) : c.t.toastNote;
+  const message = details.manual ? c.t.toastSaved : moved ? c.t.toastMoved(c.categoryName(category))
+    : retitled ? c.t.toastTitle : c.t.toastNote;
   afterEdit(result.undo, message);
 }
 
@@ -506,7 +626,7 @@ async function deleteTx() {
 function afterEdit(undo, message) {
   state.tx = null;
   if (state.sheet) closeSheet();
-  state.data = {};
+  state.data = {}; state.labels = undefined;
   show(state.tab);
   showToast(message, undo);
   autoSync(true);
@@ -536,10 +656,305 @@ async function undoLast() {
   if (!undo) return;
   lastUndo = null;
   const result = await backend.edit(undo);
-  state.data = {};
+  state.data = {}; state.labels = undefined;
+  if (state.sheet && state.sheet.kind === 'categories') await openCategories(); // the open list shows the undo
   show(state.tab);
   showToast(result.error ? result.error : ctx().t.undone, null);
   autoSync(true);
+}
+
+// ---- Profile: the name for the greeting, kept in the encrypted account (design.md §6)
+async function loadProfile() {
+  try {
+    const p = await backend.get('profile');
+    state.profileName = p.name || null;
+    state.labels = p.labels || {};
+    state.sources = p.sources || {};
+    const label = document.getElementById('profile-name');
+    if (label) label.textContent = p.name || ctx().t.profileAdd;
+    return p;
+  } catch { return null; }
+}
+
+async function openProfile(first = false) {
+  const p = await loadProfile();
+  openSheet({ kind: 'profile', ...settings.profileSheet(p, ctx(), first) });
+  document.getElementById('profile-input')?.focus();
+}
+
+/** Asked once on this device, after the first sign-in, when the account has no name yet. */
+async function askNameOnce() {
+  if (localStorage.getItem('fin.askedName')) return;
+  const p = await loadProfile();
+  if (!p || !p.editable || p.name) return;
+  localStorage.setItem('fin.askedName', '1');
+  openProfile(true);
+}
+
+async function saveProfile() {
+  const name = document.getElementById('profile-input').value.trim();
+  const result = await backend.edit({ kind: 'profile', name });
+  if (result.error) {
+    const box = document.getElementById('profile-results');
+    if (box) box.textContent = result.error;
+    return;
+  }
+  state.profileName = result.name || null;
+  closeSheet();
+  if (state.firstRun) { state.firstRun = false; openAccounts(); } // then the first import
+  state.data = {}; state.labels = undefined;
+  show(state.tab);
+  showToast(ctx().t.toastName, result.undo);
+  autoSync(true);
+}
+
+// ---- Categories: a name per language and the order inside a group (design.md §13 item 8)
+let categoryData = null;
+let categoryNameOf = null;
+
+async function openCategories(focusName = null) {
+  const scroller = el.sheet.querySelector('.sheet .body');
+  const keep = state.sheet && state.sheet.kind === 'categories' && scroller ? scroller.scrollTop : 0;
+  try {
+    [categoryData] = await Promise.all([backend.get('category-editor'), loadProfile()]);
+  } catch {
+    openSheet({ kind: 'categories', title: ctx().t.catEdTitle, body: `<div class="empty">${esc(ctx().t.loadError)}</div>` });
+    return;
+  }
+  openSheet({ kind: 'categories', ...settings.categoryEditorSheet(categoryData, ctx()) });
+  const body = el.sheet.querySelector('.sheet .body');
+  if (body) body.scrollTop = keep;
+  if (focusName) [...el.sheet.querySelectorAll('[data-act="cat-up"],[data-act="cat-down"]')]
+    .find((b) => b.dataset.arg === focusName && !b.disabled)?.focus();
+}
+
+function openCategoryName(name) {
+  categoryNameOf = name;
+  const c = ctx();
+  const defaults = { he: c.defaultCategoryName(name, 'he'), en: c.defaultCategoryName(name, 'en') };
+  openSheet({ kind: 'category-name', ...settings.categoryNameSheet(name, c, defaults) });
+  document.getElementById(`cat-name-${c.lang}`)?.focus();
+}
+
+async function saveCategoryName(reset) {
+  const value = (lang) => (reset ? '' : document.getElementById(`cat-name-${lang}`).value.trim());
+  const result = await backend.edit({ kind: 'category_label', category: categoryNameOf, he: value('he'), en: value('en') });
+  if (result.error) {
+    const box = document.getElementById('cat-name-results');
+    if (box) box.textContent = result.error;
+    return;
+  }
+  state.data = {}; state.labels = undefined;
+  await openCategories();
+  showToast(ctx().t.toastCatName, result.undo);
+  autoSync(true);
+}
+
+async function moveCategory(name, step) {
+  const group = categoryData && categoryData.groups.find((g) => g.categories.includes(name));
+  if (!group) return;
+  const list = group.categories;
+  const index = list.indexOf(name);
+  if (index + step < 0 || index + step >= list.length) return;
+  // Up: after the one two places above (or first); down: after the next one.
+  const after = step < 0 ? (index >= 2 ? list[index - 2] : null) : list[index + 1];
+  const result = await backend.edit({ kind: 'category_move', category: name, after });
+  if (result.error) { showToast(result.error, null); return; }
+  state.data = {}; state.labels = undefined;
+  await openCategories(name);
+  showToast(ctx().t.toastMoved2, result.undo);
+  autoSync(true);
+}
+
+// ---- Savings: a saving typed in by the user (design.md §5, board C14)
+let holding = null; // { row (null for a new one), kind }
+
+function savingRow(id) {
+  for (const g of (state.data.sav && state.data.sav.groups) || []) {
+    const found = g.rows.find((r) => r.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function openHolding(row, kind) {
+  holding = { row, kind: row ? row.kind : kind };
+  openSheet({ kind: 'saving', ...savings.holdingSheet(holding.row, holding.kind, localToday(), ctx()) });
+}
+
+function pickHoldingKind(kind) {
+  const name = document.getElementById('hf-name')?.value || '';
+  openHolding(null, kind);
+  document.getElementById('hf-name').value = name;
+}
+
+function pickAvailability(arg) {
+  for (const b of el.sheet.querySelectorAll('[data-seg="avail"] button')) b.setAttribute('aria-pressed', String(b.dataset.arg === arg));
+  document.getElementById('hf-from-box').hidden = arg !== 'date';
+}
+
+async function savingEdit(request, message) {
+  const result = await backend.edit(request);
+  if (result.error) {
+    const box = document.getElementById('sav-results');
+    if (box) { box.className = 'results neg'; box.textContent = result.error; }
+    return;
+  }
+  afterEdit(result.undo, message);
+}
+
+// ---- Coming up: edit a commitment or a dated event, hide a duplicate card charge (design.md §6)
+let comingRow = null;
+
+function openComing(row) {
+  comingRow = row;
+  state.comingDir = row && row.income ? 'in' : 'out';
+  openSheet({ kind: 'coming', ...home.comingSheet(row, ctx()) });
+}
+
+function comingError(text) {
+  const box = document.getElementById('coming-results');
+  if (box) box.textContent = text;
+}
+
+async function comingEdit(request, message) {
+  const result = await backend.edit(request);
+  if (result.error) { comingError(result.error); return; }
+  afterEdit(result.undo, message);
+}
+
+function saveComing() {
+  const value = (id) => (document.getElementById(id)?.value || '').trim();
+  const t = ctx().t;
+  if (comingRow && comingRow.kind === 'event') {
+    comingEdit({ kind: 'event_save', id: comingRow.id, fields: {
+      label: value('cf-name'), month: value('cf-month'), amount_text: value('cf-amount'), expense: state.comingDir !== 'in' } }, t.toastSaved);
+    return;
+  }
+  const fields = { name: value('cf-name'), amount_text: value('cf-amount'), from: value('cf-from') };
+  if (value('cf-count')) fields.payments = Number(value('cf-count'));
+  else fields.until = value('cf-until');
+  comingEdit({ kind: 'commitment_save', ...(comingRow ? { id: comingRow.id } : {}), fields }, t.toastSaved);
+}
+
+function deleteComing() {
+  if (!comingRow || !comingRow.id) return;
+  comingEdit({ kind: `${comingRow.kind}_delete`, id: comingRow.id }, ctx().t.toastDeleted);
+}
+
+function hideComing() {
+  if (!comingRow || !comingRow.key) return;
+  comingEdit({ kind: 'hide_charge', key: comingRow.key }, ctx().t.toastHidden);
+}
+
+// ---- Goals: add, edit, delete and reorder (design.md §6); the order is the priority
+let goalRow = null;
+
+function openGoal(goal) {
+  goalRow = goal;
+  openSheet({ kind: 'goal', ...goals.goalSheet(goal, ctx()) });
+}
+
+async function goalEdit(request, message) {
+  const result = await backend.edit(request);
+  if (result.error) {
+    const box = document.getElementById('goal-results');
+    if (box) box.textContent = result.error; else showToast(result.error, null);
+    return;
+  }
+  afterEdit(result.undo, message);
+}
+
+function saveGoal() {
+  const value = (id) => (document.getElementById(id)?.value ?? '').trim();
+  const fields = { name: value('gf-name'), by: value('gf-by') || null };
+  const kind = goalRow ? goalRow.kind : 'amount';
+  if (kind === 'amount') { fields.amount_text = value('gf-amount'); fields.minimum_text = value('gf-minimum'); }
+  if (kind === 'months') fields.months_of_spend = Number(value('gf-months'));
+  goalEdit({ kind: 'goal_save', ...(goalRow ? { id: goalRow.id } : {}), fields }, ctx().t.toastSaved);
+}
+
+/** Move a goal to a new place; `after` is the goal it follows (null: first). */
+function moveGoalTo(from, to) {
+  const list = state.data.goals.goals;
+  if (to === from || to < 0 || to >= list.length) return;
+  const ids = list.map((g) => g.id).filter((id) => id !== list[from].id);
+  const after = to === 0 ? null : ids[to - 1];
+  goalEdit({ kind: 'goal_move', id: list[from].id, after }, ctx().t.toastMoved2);
+}
+
+const moveGoal = (index, step) => moveGoalTo(index, index + step);
+
+// Dragging by the handle: pointer events, the card follows the finger, drop picks the place.
+document.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest('[data-act="goal-drag"]');
+  if (!handle) return;
+  event.preventDefault();
+  const card = handle.closest('.goal-card');
+  const cards = [...document.querySelectorAll('.goal-card')];
+  const from = cards.indexOf(card);
+  const startY = event.clientY;
+  card.classList.add('dragging');
+  try { handle.setPointerCapture(event.pointerId); } catch { /* the window listeners still follow it */ }
+  const move = (e) => { card.style.transform = `translateY(${e.clientY - startY}px)`; };
+  const up = (e) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    card.classList.remove('dragging');
+    card.style.transform = '';
+    const centres = cards.map((c) => { const r = c.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+    const y = e.clientY;
+    let to = centres.filter((c, i) => i !== from && c < y).length;
+    to = Math.max(0, Math.min(cards.length - 1, to));
+    moveGoalTo(from, to);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+});
+
+// ---- "+": an expense by hand (design.md §11.2). Card or bank: pending until the file row.
+let addState = null;
+
+async function openAdd() {
+  let options;
+  try { options = await backend.get('add'); } catch { options = null; }
+  addState = { options, category: null, via: options && options.sources[0], amount: '', name: '', date: localToday(), note: '' };
+  renderAdd(true);
+}
+
+function keepAdd() {
+  const value = (id) => document.getElementById(id)?.value;
+  if (!addState || !document.getElementById('add-form')) return;
+  Object.assign(addState, { amount: value('add-amount'), name: value('add-name'), date: value('add-date'), note: value('add-note') });
+}
+
+function renderAdd(first = false) {
+  const view = activity.addSheet(addState, ctx());
+  if (!first && state.sheet && state.sheet.kind === 'add') {
+    const body = el.sheet.querySelector('.body');
+    const top = body.scrollTop;
+    body.innerHTML = view.body;
+    body.scrollTop = top;
+  } else {
+    openSheet({ kind: 'add', ...view });
+    document.getElementById('add-amount')?.focus();
+  }
+}
+
+async function saveAdd() {
+  keepAdd();
+  const t = ctx().t;
+  const box = document.getElementById('add-results');
+  const say = (text) => { if (box) box.textContent = text; };
+  if (!addState.amount || !addState.name.trim()) { say(t.addFill); return; }
+  const result = await backend.edit({ kind: 'manual_save', date: addState.date, amount_text: addState.amount, expense: true,
+    description: addState.name.trim(), category: addState.category, via: addState.via });
+  if (result.error) { say(result.error); return; }
+  if (addState.note.trim()) await backend.edit({ kind: 'note', tx_hash: `manual:${result.id}`, text: addState.note.trim() });
+  addState = null;
+  afterEdit(result.undo, t.toastAdded);
 }
 
 // ---- One click handler for the whole app
@@ -564,8 +979,43 @@ document.addEventListener('click', (event) => {
   else if (act === 'tx-scope' && state.tx) { keepTyped(); state.tx.pick.scope = arg; renderTx(); }
   else if (act === 'tx-save') saveTx();
   else if (act === 'tx-delete') deleteTx();
+  else if (act === 'tx-title-scope' && state.tx) { keepTyped(); state.tx.pick.titleScope = arg; renderTx(); }
+  else if (act === 'tx-restore-title' && state.tx && state.tx.details) {
+    backend.edit({ kind: 'restore_title', tx_hash: state.tx.details.tx_hash }).then((result) => {
+      if (result.error) txResult(result.error, 'neg'); else afterEdit(result.undo, ctx().t.toastRestored);
+    });
+  }
   else if (act === 'toast-undo') undoLast();
-  else if (act === 'month-open' && state.data.home && state.data.home.months) openSheet({ kind: 'month', ...home.monthSheet(state.data.home, ctx()) });
+  else if (act === 'profile') openProfile();
+  else if (act === 'cat-editor') openCategories();
+  else if (act === 'sav-open') openHolding(savingRow(arg));
+  else if (act === 'sav-add') openHolding(null, 'pension');
+  else if (act === 'sav-kind') pickHoldingKind(arg);
+  else if (act === 'sav-avail') pickAvailability(arg);
+  else if (act === 'sav-delete' && holding && holding.row) savingEdit({ kind: 'holding_delete', id: holding.row.id }, ctx().t.toastDeleted);
+  else if (act === 'map-open') openMap(arg);
+  else if (act === 'map-seg') mapSeg(arg);
+  else if (act === 'map-table') { mapping.table = Number(arg); openSheet({ kind: 'map', ...settings.mapSheet(mapping, ctx()) }); }
+  else if (act === 'cat-name') openCategoryName(arg);
+  else if (act === 'cat-up' || act === 'cat-down') moveCategory(arg, act === 'cat-up' ? -1 : 1);
+  else if (act === 'cat-reset') saveCategoryName(true);
+  else if (act === 'add-open') openAdd();
+  else if (act === 'add-cat') { keepAdd(); addState.category = arg; renderAdd(); }
+  else if (act === 'add-via') { keepAdd(); addState.via = arg; renderAdd(); }
+  else if (act === 'goal-open' && !event.target.closest('.goal-order')) openGoal(state.data.goals.goals[Number(arg)]);
+  else if (act === 'goal-add') openGoal(null);
+  else if (act === 'goal-delete') goalEdit({ kind: 'goal_delete', id: goalRow.id }, ctx().t.toastDeleted);
+  else if (act === 'goal-up' || act === 'goal-down') moveGoal(Number(arg), act === 'goal-up' ? -1 : 1);
+  else if (act === 'coming-open') openComing(state.data.home.coming[Number(arg)]);
+  else if (act === 'coming-add') openComing(null);
+  else if (act === 'coming-hide') hideComing();
+  else if (act === 'coming-delete') deleteComing();
+  else if (act === 'cf-dir') { state.comingDir = arg; target.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === target))); }
+  else if (act === 'month-open' && state.data.home && state.data.home.months) {
+    openSheet({ kind: 'month', ...home.monthSheet(state.data.home, ctx()) });
+    // the month being viewed sits in the middle, earlier months above, later below (design.md §6)
+    el.sheet.querySelector('.month-row[aria-pressed="true"]')?.scrollIntoView({ block: 'center' });
+  }
   else if (act === 'month-pick') {
     const current = state.data.home && state.data.home.current_month;
     state.ui.homeMonth = arg === current ? null : arg; // kept while moving between tabs; reset when the app opens
@@ -593,6 +1043,8 @@ document.addEventListener('click', (event) => {
   else if (act === 'sync-logout') { sync.logout().then(() => { updateSyncRow(); openSync(); }); }
   else if (act === 'sync-password') { const form = document.getElementById('pw-form'); form.hidden = !form.hidden; if (!form.hidden) document.getElementById('pw-new').focus(); }
   else if (act === 'sync-code') syncCode();
+  else if (act === 'sync-mode') syncMode();
+  else if (act === 'first-run') firstRun();
   else if (act === 'appearance') openSheet({ kind: 'appearance', ...settings.appearanceSheet(ctx()) });
   else if (act === 'close') closeSheet();
   else if (act === 'pref') { const [key, value] = arg.split(':'); state.prefs[key] = value; savePrefs(); refreshAppearance(); }
@@ -601,12 +1053,25 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (event.target.id === 'sync-form') syncLogin();
+  if (event.target.id === 'sync-form') (event.target.dataset.create === 'true' ? syncRegister() : syncLogin());
   else if (event.target.id === 'pw-form') syncPassword();
+  else if (event.target.id === 'profile-form') saveProfile();
+  else if (event.target.id === 'coming-form') saveComing();
+  else if (event.target.id === 'goal-form') saveGoal();
+  else if (event.target.id === 'add-form') saveAdd();
+  else if (event.target.id === 'cat-name-form') saveCategoryName(false);
+  else if (event.target.id === 'map-form') saveMap();
+  else if (event.target.id === 'sav-form') savingEdit(savings.holdingRequest(holding.row, holding.kind, el.sheet), ctx().t.toastSaved);
 });
 
 document.addEventListener('input', (event) => {
   const target = event.target;
+  if (target.id === 'tx-title' && state.tx && state.tx.details) { // the scope shows once the title changes
+    const changed = target.value.trim() && target.value.trim() !== state.tx.details.name;
+    const box = document.getElementById('title-scope');
+    if (box) box.hidden = !changed;
+    return;
+  }
   if (target.id === 'act-q') { // search waits for a short pause in typing
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { state.ui.q = target.value.trim(); reloadActivity(); }, 300);
@@ -622,6 +1087,7 @@ document.addEventListener('input', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="button"][data-act]')) { event.preventDefault(); event.target.click(); return; }
   if (event.key === 'Escape' && state.sheet) closeSheet();
 });
 
@@ -632,7 +1098,7 @@ show(state.tab);
 autoSync(true);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (state.today && state.today !== localToday()) { state.data = {}; if (!state.sheet) show(state.tab); } // a new day
+  if (state.today && state.today !== localToday()) { state.data = {}; state.labels = undefined; if (!state.sheet) show(state.tab); } // a new day
   autoSync();
 });
 

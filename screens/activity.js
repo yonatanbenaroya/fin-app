@@ -19,7 +19,7 @@ export function render(data, ctx, ui) {
       return `<button type="button" class="row" data-act="tx" data-arg="${item.id}" data-tx="${esc(item.tx)}">
         ${tile(item.bucket, categoryIcon(item.category, item.bucket))}
         <div class="main"><span class="name">${esc(item.name)}</span>
-          <span class="sub">${esc(ctx.categoryName(item.category))} · ${esc(ctx.sourceName(item.source))}</span>
+          <span class="sub">${item.pending ? `<span class="pending">${esc(t.pending)}</span> · ` : ''}${esc(ctx.categoryName(item.category))} · ${esc(ctx.sourceName(item.source))}</span>
           ${item.note ? `<span class="sub note-line">${esc(item.note)}</span>` : ''}</div>
         <span class="value small${income ? ' pos' : ''}">${amt(item.amount, { sign: income ? 'plus' : 'none' })}</span>
       </button>`;
@@ -124,6 +124,21 @@ export function sheet(item, day, ctx, details = null, pick = {}) {
     scope = `<div class="field"><span class="flabel">${esc(t.scopeTitle)}</span><div class="scope-list" role="radiogroup">
       ${SCOPES.map((key) => `<button type="button" role="radio" aria-checked="${key === current}" data-act="tx-scope" data-arg="${key}"${labels[key][1] ? '' : ' disabled'}>${esc(labels[key][0])}</button>`).join('')}</div></div>`;
   }
+  // The title (design.md §5): any imported transaction can get its own name; the bank's text stays.
+  const titleNow = pick.title ?? details.name;
+  const titleChanged = titleNow.trim() && titleNow.trim() !== details.name;
+  const titleScope = pick.titleScope || 'one';
+  const titleScopes = {
+    one: [t.scopeOne, true],
+    merchant: [t.titleScopeMerchant(details.original, details.merchant_count), details.merchant_count > 1],
+    merchant_amount: [t.titleScopeAmount(details.original, amtText(details.amount), details.merchant_amount_count), details.merchant_amount_count > 1],
+  };
+  const title = details.manual ? '' : `<div class="field"><span class="flabel">${esc(t.txTitle)}</span>
+      <input id="tx-title" class="text-input" maxlength="80" value="${esc(titleNow)}" aria-label="${esc(t.txTitle)}">
+      ${details.renamed ? `<span class="muted tx-note">${esc(t.bankName(details.original))}
+        <button type="button" class="link-btn" data-act="tx-restore-title">${esc(t.restoreOriginal)}</button></span>` : ''}
+      <div id="title-scope" class="scope-list" role="radiogroup"${titleChanged ? '' : ' hidden'}>
+        ${SCOPES.map((key) => `<button type="button" role="radio" aria-checked="${key === titleScope}" data-act="tx-title-scope" data-arg="${key}"${titleScopes[key][1] ? '' : ' disabled'}>${esc(titleScopes[key][0])}</button>`).join('')}</div></div>`;
   const manual = details.manual ? `<form id="tx-manual" class="pack-form" style="flex-direction:column;align-items:stretch">
       <input id="tx-name" class="text-input" value="${esc(pick.name ?? details.name)}" aria-label="${esc(t.txName)}" placeholder="${esc(t.txName)}">
       <input id="tx-amount" class="text-input" inputmode="decimal" dir="ltr" value="${esc(pick.amount ?? details.amount_text)}" aria-label="${esc(t.txAmount)}" placeholder="${esc(t.txAmount)}">
@@ -135,6 +150,34 @@ export function sheet(item, day, ctx, details = null, pick = {}) {
   const remove = details.manual ? `<button type="button" class="btn-soft" data-act="tx-delete">${esc(t.txDelete)}</button>` : '';
   return {
     title: details.name,
-    body: `${head}${manual}${note}<div id="tx-results" class="results" aria-live="polite"></div>${picker}${scope}${save}${remove}`,
+    body: `${head}${title}${manual}${note}<div id="tx-results" class="results" aria-live="polite"></div>${picker}${scope}${save}${remove}`,
   };
 }
+
+/** The "+" sheet (design.md §11.2): amount first, description, category, date, source, note. */
+export function addSheet(add, ctx) {
+  const { t } = ctx;
+  if (!add || !add.options || !add.options.editable) {
+    return { title: t.addTitle, body: `<span class="muted tx-note">${esc(t.txNeedsAccount)}</span>` };
+  }
+  const groupLabel = (g) => (g.kind === 'expense' ? ctx.bucketName(g.key) : t.kinds[g.kind] || g.kind);
+  const picker = add.options.groups.filter((g) => g.kind === 'expense').map((g) => `<div class="field"><span class="flabel">${esc(groupLabel(g))}</span>
+      <div class="cat-chips">${g.categories.map((name) => `<button type="button" class="cat-chip" aria-pressed="${name === add.category}" data-act="add-cat" data-arg="${esc(name)}">${esc(ctx.categoryName(name))}</button>`).join('')}</div></div>`).join('');
+  const sources = add.options.sources.map((key) => `<button type="button" class="cat-chip" aria-pressed="${key === add.via}" data-act="add-via" data-arg="${esc(key)}">${esc(t.viaNames[key] || ctx.sourceName(key))}</button>`).join('');
+  return {
+    title: t.addTitle,
+    body: `<form id="add-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        <input id="add-amount" class="text-input add-amount" inputmode="decimal" dir="ltr" placeholder="₪0" value="${esc(add.amount)}" aria-label="${esc(t.txAmount)}">
+        <input id="add-name" class="text-input" maxlength="200" placeholder="${esc(t.addName)}" value="${esc(add.name)}" aria-label="${esc(t.addName)}">
+        <label class="field"><span class="flabel">${esc(t.txDate)}</span><input id="add-date" class="text-input" type="date" dir="ltr" value="${esc(add.date)}"></label>
+        <div class="field"><span class="flabel">${esc(t.addVia)}</span><div class="cat-chips">${sources}</div>
+          <span class="muted tx-note">${esc(['cash', 'other'].includes(add.via) ? t.addPermanent : t.addPending)}</span></div>
+        <div class="field"><span class="flabel">${esc(t.txNote)}</span>
+          <textarea id="add-note" class="text-input note-input" rows="2" maxlength="500" placeholder="${esc(t.txNoteHint)}">${esc(add.note)}</textarea></div>
+        ${picker}
+        <div id="add-results" class="results neg" aria-live="polite"></div>
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button>
+      </form>`,
+  };
+}
+

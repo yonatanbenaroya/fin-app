@@ -18,13 +18,19 @@ function hideSwitch(prefs, label) {
 export function render(ctx) {
   const { t, prefs } = ctx;
   return `<div class="screen narrow-640">
+    <button type="button" class="back-home" data-act="tab" data-arg="home">${icon('chevron', 16, 'class="back-chev" stroke-width="1.8"')}<span>${esc(t.tabHome)}</span></button>
     <h1 class="title" style="padding:0 2px">${esc(t.setTitle)}</h1>
-    <section class="card" style="padding:16px;display:flex;align-items:center;gap:14px">
+    <button type="button" class="card profile-card" data-act="profile">
       <div style="width:56px;height:56px;border-radius:28px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--surface);color:var(--on-surface)">${icon('lock', 24)}</div>
-      <span class="muted" style="font-size:15px">${esc(t.userSub)}</span></section>
+      <span class="main"><span class="name" id="profile-name">${esc(ctx.profileName || t.profileAdd)}</span>
+        <span class="muted" style="font-size:15px">${esc(t.userSub)}</span></span>
+      ${icon('chevron', 16, 'class="chev" stroke-width="1.8"')}</button>
     <section class="group"><h2 class="label">${esc(t.gMoney)}</h2><div class="card">
       <button type="button" class="row" style="min-height:60px" data-act="accounts">${tile('transport', 'bank')}
         <span class="main name">${esc(t.sAcc)}</span><span class="muted" style="font-size:15px">${esc(t.sAccV(3))}</span>
+        ${icon('chevron', 16, 'class="chev" stroke-width="1.8"')}</button>
+      <button type="button" class="row" style="min-height:60px" data-act="cat-editor">${tile('food', 'pie')}
+        <span class="main name">${esc(t.catEdTitle)}</span>
         ${icon('chevron', 16, 'class="chev" stroke-width="1.8"')}</button>
     </div></section>
     ${ctx.syncAvailable ? `<section class="group"><h2 class="label">${esc(t.gSync)}</h2><div class="card">
@@ -92,7 +98,7 @@ export function accountsRows(data, ctx) {
     const sub = s.last_import ? t.accLast(ctx.dayMonth(localDate(s.last_import))) : t.accNever;
     const end = s.newest_transaction ? t.accThrough(ctx.dayMonth(s.newest_transaction)) : '';
     return `<div class="row" style="min-height:64px">${tile(tone, ic)}
-      <div class="main"><span class="name">${esc(t.accNames[s.source] || s.source)}</span><span class="sub">${esc(sub)}</span></div>
+      <div class="main"><span class="name">${esc(t.accNames[s.source] || ctx.sourceName(s.source))}</span><span class="sub">${esc(sub)}</span></div>
       <span class="muted" style="font-size:13px">${esc(end)}</span></div>`;
   }).join('');
 }
@@ -126,7 +132,7 @@ export function accountsSheet(data, ctx) {
       <div class="card" id="accounts-rows">${accountsRows(data, ctx)}</div>
       <div class="dropzone" id="dropzone">${esc(t.dropHint)}</div>
       <button type="button" class="btn-primary" data-act="import-pick">${esc(t.accBtn)}</button>
-      <input type="file" id="import-input" accept=".xlsx,.xls,.pdf" multiple hidden>
+      <input type="file" id="import-input" accept=".xlsx,.xls,.csv,.pdf" multiple hidden>
       <div id="import-results" class="results" aria-live="polite"></div>
       <span class="muted" style="font-size:13px;line-height:18px;text-align:center">${esc(t.accNote)}</span>
       ${packSection(ctx)}`,
@@ -136,10 +142,11 @@ export function accountsSheet(data, ctx) {
 /** One line per imported file. Counts only, never a row's contents. */
 export function importLine(name, result, ctx) {
   const { t } = ctx;
-  const src = result.source ? (t.accNames[result.source] || result.source) : '';
+  const src = result.source ? (t.accNames[result.source] || ctx.sourceName(result.source)) : '';
   if (result.error) return { text: t.resError(name, result.error), cls: 'neg' };
   if (result.status === 'imported') return { text: t.resImported(src, result.rows_inserted, result.rows_duplicate), cls: 'pos' };
   if (result.status === 'rejected') return { text: t.resRejected(src), cls: 'neg' };
+  if (result.preview) return { text: t.resMappable(name), cls: 'warn', map: true };
   return { text: t.resUnrecognized(name), cls: 'warn' };
 }
 
@@ -178,10 +185,18 @@ export function syncSheet(status, ctx) {
       <code dir="ltr" style="font-size:14px">uv run fin sync login</code>`;
   } else if (!status.signed_in) {
     body = `<span class="muted" style="font-size:15px;line-height:21px">${esc(t.syncIntro)}</span>
-      <form id="sync-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+      <form id="sync-form" class="pack-form" style="flex-direction:column;align-items:stretch" data-create="false">
         ${field('sync-email', 'email', 'username', t.syncEmail)}
         ${field('sync-password', 'password', 'current-password', t.syncPassword)}
+        <div id="sync-create" class="create-fields" hidden>
+          ${field('sync-again', 'password', 'new-password', t.syncAgain)}
+          <span class="muted" style="font-size:13px">${esc(t.syncRule)}</span>
+          <input type="text" id="sync-invite" class="text-input" autocomplete="off" autocapitalize="characters" spellcheck="false" dir="ltr"
+            placeholder="${esc(t.syncInvite)}" aria-label="${esc(t.syncInvite)}">
+          <span class="muted" style="font-size:13px">${esc(t.syncInviteHint)}</span>
+        </div>
         <button type="submit" class="btn-primary" id="sync-login">${esc(t.syncLogin)}</button>
+        <button type="button" class="btn-soft" data-act="sync-mode" id="sync-mode">${esc(t.syncToCreate)}</button>
       </form>
       <div id="sync-results" class="results" aria-live="polite"></div>`;
   } else if (ctx.mode === 'server') {
@@ -198,4 +213,139 @@ export function syncSheet(status, ctx) {
       <button type="button" class="btn-soft" data-act="sync-logout">${esc(t.syncLogout)}</button>`;
   }
   return { title: t.syncRow, body: `${body}${note}` };
+}
+
+/** Settings > Profile, and the one-time question at the first sign-in (design.md §6). */
+export function profileSheet(profile, ctx, first = false) {
+  const { t } = ctx;
+  if (!profile || !profile.editable) {
+    return { title: t.profileTitle, body: `<span class="muted" style="font-size:15px;line-height:21px">${esc(t.profileNeedsAccount)}</span>` };
+  }
+  return {
+    title: first ? t.askName : t.profileTitle,
+    body: `<form id="profile-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        <input id="profile-input" class="text-input" maxlength="40" autocomplete="given-name" value="${esc(profile.name || '')}"
+          placeholder="${esc(t.profileName)}" aria-label="${esc(t.profileName)}">
+        <span class="muted" style="font-size:13px">${esc(t.profileHint)}</span>
+        <button type="submit" class="btn-primary">${esc(ctx.t.txSave)}</button>
+        ${first ? `<button type="button" class="btn-soft" data-act="close">${esc(t.profileSkip)}</button>` : ''}
+      </form>
+      <div id="profile-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+
+// ---- Categories (design.md §13 item 8): a name per language and the order inside a group.
+// Colours come later. The key the ledger and the rules use never changes.
+const groupLabel = (g, ctx) => (g.kind === 'expense' ? ctx.bucketName(g.key) : ctx.t.kinds[g.kind] || g.kind);
+
+export function categoryEditorSheet(data, ctx) {
+  const { t } = ctx;
+  if (!data || !data.editable) {
+    return { title: t.catEdTitle, body: `<span class="muted" style="font-size:15px;line-height:21px">${esc(t.catEdNeedsAccount)}</span>` };
+  }
+  const rows = (g) => g.categories.map((name, i) => `<div class="row cat-ed-row">
+      <button type="button" class="cat-ed-name" data-act="cat-name" data-arg="${esc(name)}">
+        <span class="name">${esc(ctx.categoryName(name))}</span>${icon('chevron', 14, 'class="chev" stroke-width="1.8"')}</button>
+      <span class="cat-ed-order">
+        <button type="button" class="arrow" data-act="cat-up" data-arg="${esc(name)}" aria-label="${esc(t.goalUp)}"${i === 0 ? ' disabled' : ''}>↑</button>
+        <button type="button" class="arrow" data-act="cat-down" data-arg="${esc(name)}" aria-label="${esc(t.goalDown)}"${i === g.categories.length - 1 ? ' disabled' : ''}>↓</button></span>
+    </div>`).join('');
+  return {
+    title: t.catEdTitle,
+    body: `<span class="muted" style="font-size:14px;line-height:20px">${esc(t.catEdHint)}</span>
+      ${data.groups.map((g) => `<section class="group"><h3 class="label">${esc(groupLabel(g, ctx))}</h3>
+        <div class="card">${rows(g)}</div></section>`).join('')}`,
+  };
+}
+
+/** One category's names: Hebrew and English, each empty for the default. */
+export function categoryNameSheet(name, ctx, defaults) {
+  const { t } = ctx;
+  const own = ctx.labels[name] || {};
+  const field = (lang, label) => `<label class="field"><span class="flabel">${esc(label)}</span>
+      <input id="cat-name-${lang}" class="text-input" maxlength="40" lang="${lang}" dir="${lang === 'he' ? 'rtl' : 'ltr'}"
+        value="${esc(own[lang] || '')}" placeholder="${esc(defaults[lang])}" aria-label="${esc(label)}"></label>`;
+  const changed = own.he || own.en;
+  return {
+    title: ctx.categoryName(name),
+    body: `<form id="cat-name-form" class="pack-form" style="flex-direction:column;align-items:stretch">
+        ${field('he', t.catEdHe)}${field('en', t.catEdEn)}
+        <span class="muted" style="font-size:13px">${esc(t.catEdNameHint)}</span>
+        <button type="submit" class="btn-primary">${esc(t.txSave)}</button>
+        ${changed ? `<button type="button" class="btn-soft" data-act="cat-reset">${esc(t.catEdReset)}</button>` : ''}
+        <button type="button" class="btn-soft" data-act="cat-editor">${esc(t.catEdBack)}</button>
+      </form>
+      <div id="cat-name-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+// ---- A source of my own (design.md §12 item 9): map the columns of a file no adapter knows.
+// The browser only collects the choices; the engine checks them and reads the file.
+const MAP_ROLES = ['date', 'description', 'amount', 'debit', 'credit', 'balance', 'billing'];
+
+/** pending: { file, tables, table (index), id (after a first save) } */
+export function mapSheet(pending, ctx) {
+  const { t } = ctx;
+  const table = pending.tables[pending.table];
+  const guess = table.guess || {};
+  const roleOf = (header) => MAP_ROLES.find((role) => guess[role] === header) || '';
+  const options = (header) => ['', ...MAP_ROLES].map((role) =>
+    `<option value="${role}"${roleOf(header) === role ? ' selected' : ''}>${esc(role ? t.mapRoles[role] : t.mapUnused)}</option>`).join('');
+  const sample = (i) => table.rows.map((row) => row[i]).find((v) => v) || '';
+  const columns = table.headers.map((header, i) => header ? `<div class="row map-col">
+      <span class="main"><span class="name">${esc(header)}</span><span class="sub" dir="auto">${esc(sample(i))}</span></span>
+      <select class="text-input map-role" data-col="${esc(header)}" aria-label="${esc(t.mapRoleOf(header))}">${options(header)}</select></div>` : '').join('');
+  const seg = (name, values, chosen) => `<div class="seg small" data-seg="${name}">${values.map(([key, label]) =>
+    `<button type="button" aria-pressed="${key === chosen}" data-act="map-seg" data-arg="${name}:${key}">${esc(label)}</button>`).join('')}</div>`;
+  const kind = guess.kind || 'bank';
+  const tables = pending.tables.length > 1 ? `<div class="field"><span class="flabel">${esc(t.mapSheetL)}</span>
+      <div class="cat-chips">${pending.tables.map((x, i) => `<button type="button" class="cat-chip" aria-pressed="${i === pending.table}" data-act="map-table" data-arg="${i}">${esc(x.sheet)}</button>`).join('')}</div></div>` : '';
+  const stem = pending.file.replace(/\.[^.]+$/, '');
+  return {
+    title: t.mapTitle,
+    body: `<span class="muted" style="font-size:14px;line-height:20px">${esc(t.mapIntro)}</span>
+      <form id="map-form" class="map-form">
+        <label class="field"><span class="flabel">${esc(t.mapName)}</span>
+          <input id="map-name" class="text-input" maxlength="40" value="${esc(pending.name || stem)}"></label>
+        <div class="field"><span class="flabel">${esc(t.mapKind)}</span>${seg('kind', [['bank', t.mapBank], ['card', t.mapCard]], kind)}</div>
+        ${tables}
+        <div class="field"><span class="flabel">${esc(t.mapColumns)}</span><div class="card">${columns}</div></div>
+        <div class="field"><span class="flabel">${esc(t.mapOrder)}</span>${seg('date_order', [['dmy', t.mapDmy], ['mdy', t.mapMdy], ['ymd', t.mapYmd]], guess.date_order || 'dmy')}</div>
+        <div class="field"><span class="flabel">${esc(t.mapSign)}</span>${seg('spending', [['negative', t.mapSignNeg], ['positive', t.mapSignPos]], guess.spending || 'negative')}
+          <span class="muted" style="font-size:13px">${esc(t.mapSignHint)}</span></div>
+        <label class="field" id="map-label-field"${kind === 'card' ? '' : ' hidden'}><span class="flabel">${esc(t.mapLabel)}</span>
+          <input id="map-label" class="text-input" maxlength="60" placeholder="${esc(t.mapLabelPh)}">
+          <span class="muted" style="font-size:13px">${esc(t.mapLabelHint)}</span></label>
+        <button type="submit" class="btn-primary">${esc(t.mapSave)}</button>
+      </form>
+      <div id="map-results" class="results" aria-live="polite"></div>`,
+  };
+}
+
+/** The choices on the sheet as the engine's source_map fields. */
+export function mapFields(pending, root) {
+  const table = pending.tables[pending.table];
+  const pressed = (name) => root.querySelector(`[data-seg="${name}"] [aria-pressed="true"]`)?.dataset.arg.split(':')[1];
+  const fields = {
+    name: root.querySelector('#map-name').value.trim(),
+    kind: pressed('kind'),
+    sheet: table.sheet,
+    headers: table.headers,
+    date_order: pressed('date_order'),
+    spending: pressed('spending'),
+  };
+  for (const select of root.querySelectorAll('.map-role')) if (select.value) fields[select.value] = select.dataset.col;
+  if (fields.kind === 'card') fields.bank_label = root.querySelector('#map-label').value.trim() || null;
+  return fields;
+}
+
+/** After a new account: the recovery code, once, and a required "I saved it" before going on. */
+export function recoveryShown(code, ctx) {
+  const { t } = ctx;
+  return `<div class="pos">${esc(t.syncCreated)}</div>
+    <code class="recovery-code" dir="ltr">${esc(code)}</code>
+    <div class="muted">${esc(t.syncCodeKeep)}</div>
+    <label class="check-row"><input type="checkbox" id="code-saved"> <span>${esc(t.syncCodeSaved)}</span></label>
+    <button type="button" class="btn-primary" data-act="first-run" id="first-run" disabled>${esc(t.syncContinue)}</button>`;
 }
