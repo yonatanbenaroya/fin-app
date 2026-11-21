@@ -104,6 +104,7 @@ export function holdingSheet(r, kind, today, ctx) {
       <div id="hf-from-box"${available === 'date' ? '' : ' hidden'}>${field('hf-from', t.hfDate, r && r.available_from, 'type="month" dir="ltr"')}</div>`;
   }
   return {
+    close: true,
     title: r ? r.name : t.hfNew,
     body: `<form id="sav-form" class="pack-form sav-form" style="flex-direction:column;align-items:stretch" data-kind="${esc(kind)}">
       ${chips}

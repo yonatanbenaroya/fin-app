@@ -58,8 +58,6 @@ export function render(data, ctx, ui) {
     rows.push(`<div class="row">${tile('rent', 'home')}<div class="main"><span class="name">${esc(ctx.bucketName('rent'))}</span>
       <span class="sub">${esc(t.rentNote)}</span></div><span class="value small">${amt(data.rent.spent)}</span></div>`);
   }
-  const preview = data.budget && data.budget.preview
-    ? `<span class="note">${esc(t.preview(ctx.month(data.budget.start_month, true)))}</span>` : '';
   return `<div class="screen">
     <div class="title-block"><h1 class="title">${esc(t.catTitle)}</h1>
       <span class="subtitle">${esc(t.catSub(ctx.month(data.month, true)))}</span></div>
@@ -68,6 +66,6 @@ export function render(data, ctx, ui) {
         <span class="total">${amt(data.spent)}</span>
         <span class="muted amt" style="font-size:13px">${ceilings ? esc(t.ofBudgetFn(amtText(ceilings))) : ''}</span></div></div></section>
     <div class="card card-stack">${rows.join('')}</div>
-    <span class="note">${esc(t.paceNote)}</span>${preview}
+    <span class="note">${esc(t.paceNote)}</span>
   </div>`;
 }

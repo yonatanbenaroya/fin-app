@@ -153,6 +153,7 @@ export function sheet(item, day, ctx, details = null, pick = {}) {
   const save = `<button type="button" class="btn-primary" data-act="tx-save">${esc(t.txSave)}</button>`;
   const remove = details.manual ? `<button type="button" class="btn-soft" data-act="tx-delete">${esc(t.txDelete)}</button>` : '';
   return {
+    close: true,
     title: details.name,
     body: `${head}${title}${manual}${note}<div id="tx-results" class="results" aria-live="polite"></div>${picker}${scope}${save}${remove}`,
   };
@@ -169,6 +170,7 @@ export function addSheet(add, ctx) {
       <div class="cat-chips">${g.categories.map((name) => `<button type="button" class="cat-chip" aria-pressed="${name === add.category}" data-act="add-cat" data-arg="${esc(name)}">${esc(ctx.categoryName(name))}</button>`).join('')}</div></div>`).join('');
   const sources = add.options.sources.map((key) => `<button type="button" class="cat-chip" aria-pressed="${key === add.via}" data-act="add-via" data-arg="${esc(key)}">${esc(t.viaNames[key] || ctx.sourceName(key))}</button>`).join('');
   return {
+    close: true,
     title: t.addTitle,
     body: `<form id="add-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         <input id="add-amount" class="text-input add-amount" inputmode="decimal" dir="ltr" placeholder="₪0" value="${esc(add.amount)}" aria-label="${esc(t.txAmount)}">

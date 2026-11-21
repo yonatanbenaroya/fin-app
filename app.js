@@ -165,19 +165,66 @@ async function show(tab) {
 const desktop = window.matchMedia('(min-width: 1024px)');
 let sheetTrigger = null;
 
-function openSheet(sheet) {
+// The values a sheet with a form opened with, to ask before closing over typed input.
+let sheetStart = null;
+
+/** A sheet with a Save button says "Close" in its header, others "Done" (design.md §6
+ * "Done versus Close"). The same sheet drawn again (a chip picked) keeps its starting
+ * values; `fresh` (after a save) starts them over. */
+function openSheet(sheet, { fresh = false } = {}) {
+  const same = state.sheet && state.sheet.kind === sheet.kind;
   if (!state.sheet) sheetTrigger = document.activeElement;
   state.sheet = sheet;
   const c = ctx();
   el.sheet.innerHTML = `<div class="scrim" data-act="close"></div>
     <div class="sheet" role="dialog" aria-label="${esc(sheet.title)}"><div class="grabber" aria-hidden="true"></div>
-      <header><h2>${esc(sheet.title)}</h2><button type="button" class="btn-done" data-act="close">${esc(c.t.done)}</button></header>
+      <header><h2>${esc(sheet.title)}</h2><button type="button" class="btn-done" data-act="close">${esc(sheet.close ? c.t.close : c.t.done)}</button></header>
       <div class="body">${sheet.body}</div></div>`;
   el.sheet.querySelector('.btn-done').focus();
   wireDropzone();
+  const now = sheetValues();
+  sheetStart = same && !fresh && sheetStart ? { ...now, ...sheetStart } : now;
+}
+
+/** What can be typed or picked in the open sheet: fields by id, and the pressed chip of
+ * each group (keyed by its action). */
+function sheetValues() {
+  const values = {};
+  el.sheet.querySelectorAll('.body input, .body textarea, .body select').forEach((input, index) => {
+    const key = `f:${input.id || index}`;
+    values[key] = input.type === 'checkbox' ? String(input.checked) : input.value;
+  });
+  el.sheet.querySelectorAll('.body [aria-pressed], .body [aria-checked]').forEach((chip) => {
+    const key = `c:${chip.dataset.act || ''}`;
+    if (!(key in values)) values[key] = '';
+    if (chip.getAttribute('aria-pressed') === 'true' || chip.getAttribute('aria-checked') === 'true') {
+      values[key] += `|${chip.dataset.arg || ''}`;
+    }
+  });
+  return values;
+}
+
+function sheetChanged() {
+  if (!sheetStart) return false;
+  const now = sheetValues();
+  return Object.keys(now).some((key) => key in sheetStart && now[key] !== sheetStart[key]);
+}
+
+/** Close from the header button, Escape or the backdrop: a sheet with a form asks first
+ * when something was typed or picked; an untouched one closes at once. */
+function requestClose() {
+  if (!state.sheet || !state.sheet.close || !sheetChanged()) { closeSheet(); return; }
+  if (el.sheet.querySelector('.discard-ask')) return;
+  const t = ctx().t;
+  el.sheet.querySelector('.body').insertAdjacentHTML('afterbegin', `<div class="discard-ask" role="alertdialog" aria-label="${esc(t.discardAsk)}">
+      <span>${esc(t.discardAsk)}</span>
+      <span class="discard-buttons"><button type="button" class="btn-soft" data-act="discard-no">${esc(t.discardNo)}</button>
+        <button type="button" class="btn-soft neg" data-act="discard-yes">${esc(t.discardYes)}</button></span></div>`);
+  el.sheet.querySelector('[data-act="discard-no"]').focus();
 }
 
 function closeSheet() {
+  sheetStart = null;
   if (state.sheet && state.sheet.kind === 'tx') state.tx = null;
   state.sheet = null;
   el.sheet.innerHTML = '';
@@ -569,6 +616,10 @@ function renderTx() {
     body.innerHTML = view.body;
     body.scrollTop = top; // choosing a category must not jump the sheet back to the top
     el.sheet.querySelector('header h2').textContent = view.title;
+    // Once loaded the sheet has its form: "Close", and the new fields' first values count.
+    state.sheet.close = Boolean(view.close);
+    el.sheet.querySelector('.btn-done').textContent = view.close ? ctx().t.close : ctx().t.done;
+    sheetStart = { ...sheetValues(), ...(sheetStart || {}) };
   } else {
     openSheet({ kind: 'tx', ...view });
   }
@@ -894,9 +945,33 @@ function hideComing() {
 // ---- Goals: add, edit, delete and reorder (design.md §6); the order is the priority
 let goalRow = null;
 
-function openGoal(goal) {
+let goalPick = {};
+
+function openGoal(goal, pick = {}, fresh = false) {
   goalRow = goal;
-  openSheet({ kind: 'goal', ...goals.goalSheet(goal, ctx()) });
+  goalPick = pick;
+  openSheet({ kind: 'goal', ...goals.goalSheet(goal, ctx(), pick) }, { fresh });
+}
+
+/** The type chips: the same sheet again with the other type's fields (the name kept). */
+function pickGoalKind(kind) {
+  const name = document.getElementById('gf-name')?.value;
+  openGoal(goalRow, { ...goalPick, kind, first: kind === 'zero' ? true : goalPick.first });
+  const input = document.getElementById('gf-name');
+  if (input && name !== undefined) input.value = name;
+}
+
+/** −/+ on a saved goal's monthly amount: the engine steps it to the next 100; the sheet stays. */
+async function stepGoal(step) {
+  const id = goalRow && goalRow.id;
+  const result = await backend.edit({ kind: 'goal_save', id, fields: { monthly_step: step } });
+  if (result.error) { const box = document.getElementById('goal-results'); if (box) box.textContent = result.error; return; }
+  state.data = {};
+  await show(state.tab);
+  const fresh = state.data.goals && state.data.goals.goals.find((g) => g.id === id);
+  if (fresh) openGoal(fresh, goalPick, true);
+  showToast(ctx().t.toastSaved, result.undo);
+  autoSync(true);
 }
 
 async function goalEdit(request, message) {
@@ -911,10 +986,13 @@ async function goalEdit(request, message) {
 
 function saveGoal() {
   const value = (id) => (document.getElementById(id)?.value ?? '').trim();
-  const fields = { name: value('gf-name'), by: value('gf-by') || null };
-  const kind = goalRow ? goalRow.kind : 'amount';
-  if (kind === 'amount') { fields.amount_text = value('gf-amount'); fields.minimum_text = value('gf-minimum'); }
+  const kind = document.getElementById('goal-form')?.dataset.kind || 'amount';
+  const first = Boolean(document.getElementById('gf-first')?.checked);
+  const fields = { name: value('gf-name'), kind, first };
+  if (kind !== 'zero') fields.by = value('gf-by') || null;
+  if (kind === 'amount') fields.amount_text = value('gf-amount');
   if (kind === 'months') fields.months_of_spend = Number(value('gf-months'));
+  if (!first) fields.monthly_text = value('gf-monthly');
   goalEdit({ kind: 'goal_save', ...(goalRow ? { id: goalRow.id } : {}), fields }, ctx().t.toastSaved);
 }
 
@@ -1058,6 +1136,9 @@ document.addEventListener('click', (event) => {
   else if (act === 'add-via') { keepAdd(); addState.via = arg; renderAdd(); }
   else if (act === 'goal-open' && !event.target.closest('.goal-order')) openGoal(state.data.goals.goals[Number(arg)]);
   else if (act === 'goal-add') openGoal(null);
+  else if (act === 'gf-kind') pickGoalKind(arg);
+  else if (act === 'gf-step') stepGoal(Number(arg));
+  else if (act === 'gf-first') { goalPick = { ...goalPick, first: target.checked }; document.getElementById('gf-monthly-box').hidden = target.checked; }
   else if (act === 'goal-delete') goalEdit({ kind: 'goal_delete', id: goalRow.id }, ctx().t.toastDeleted);
   else if (act === 'goal-up' || act === 'goal-down') moveGoal(Number(arg), act === 'goal-up' ? -1 : 1);
   else if (act === 'coming-open') openComing(state.data.home.coming[Number(arg)]);
@@ -1103,7 +1184,9 @@ document.addEventListener('click', (event) => {
   else if (act === 'sync-mode') syncMode();
   else if (act === 'first-run') firstRun();
   else if (act === 'appearance') openSheet({ kind: 'appearance', ...settings.appearanceSheet(ctx()) });
-  else if (act === 'close') closeSheet();
+  else if (act === 'close') requestClose();
+  else if (act === 'discard-yes') closeSheet();
+  else if (act === 'discard-no') { el.sheet.querySelector('.discard-ask')?.remove(); el.sheet.querySelector('.btn-done')?.focus(); }
   else if (act === 'pref') { const [key, value] = arg.split(':'); state.prefs[key] = value; savePrefs(); refreshAppearance(); }
   else if (act === 'reset') { state.prefs = { ...DEFAULTS }; savePrefs(); refreshAppearance(); }
 });
@@ -1148,7 +1231,7 @@ document.addEventListener('input', (event) => {
 
 document.addEventListener('keydown', (event) => {
   if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[role="button"][data-act]')) { event.preventDefault(); event.target.click(); return; }
-  if (event.key === 'Escape' && state.sheet) closeSheet();
+  if (event.key === 'Escape' && state.sheet) requestClose();
 });
 
 desktop.addEventListener('change', () => { if (state.sheet && state.sheet.kind === 'tx') closeSheet(); renderScreen(); });

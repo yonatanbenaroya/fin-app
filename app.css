@@ -278,6 +278,15 @@ nav.tabs button[aria-current="page"] span { font-weight: 500; }
 /* Goals: open by tap, reorder by the handle or the arrows (design.md §6 "Goals editing"). */
 .goal-list { display: flex; flex-direction: column; gap: inherit; }
 .goal-card[role="button"] { cursor: pointer; }
+.goal-left { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.goal-left .big { font-size: 40px; line-height: 44px; }
+.goal-left .big .sym { font-size: 18px; line-height: 20px; margin-top: 6px; }
+.goal-togo { font-size: 13px; }
+.goal-done { display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 22px; background: var(--track); color: var(--pos); }
+.goal-axis, .goal-foot { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.goal-axis { margin-top: -6px; }
+.goal-needs { font-size: 13px; }
+.gf-monthly { width: 110px; text-align: center; }
 .goal-card.dragging { position: relative; z-index: 5; box-shadow: 0 12px 30px rgba(0,0,0,.22); transition: none; }
 .goal-order { display: flex; align-items: center; gap: 2px; flex: none; }
 .goal-order .drag { min-width: 32px; min-height: 44px; border: 0; background: none; color: var(--sub); font-size: 16px; cursor: grab; touch-action: none; }
@@ -359,3 +368,8 @@ nav.tabs .rail-set { display: none; }
 .bud-value { min-width: 84px; min-height: 36px; border: 1px solid var(--hs); border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .cat-new { min-height: 48px; border: 0; background: none; color: var(--sub); font: inherit; cursor: pointer; justify-content: flex-start; width: 100%; }
 .btn-soft.small { min-height: 34px; padding: 4px 12px; font-size: 14px; width: auto; flex: none; }
+
+/* "Discard what you typed?" at the top of a sheet with a form (design.md §6 "Done versus Close") */
+.discard-ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--neg-chip); color: var(--ink); font-size: 15px; }
+.discard-buttons { display: flex; gap: 8px; }
+.discard-buttons .btn-soft { min-height: 36px; padding: 0 14px; width: auto; }

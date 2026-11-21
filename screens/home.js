@@ -56,9 +56,6 @@ function hero(data, ctx) {
   const status = p.level
     ? `<span class="status" role="img" aria-label="${esc(label)}" title="${esc(label)}">${icon(LEVEL_ICONS[p.level], 18, 'stroke-width="2"')}</span>`
     : '';
-  const preview = budget.preview
-    ? `<span class="lead note">${esc(t.preview(ctx.month(budget.start_month, true)))}</span>`
-    : '';
   if (budget.final) { // a past month: the final result, no daily allowance (design.md §6 "Month picker")
     return `<div class="hero"${style}>${status}
     <span class="lead">${esc(over ? t.finalOver : t.finalLeft)}</span>
@@ -83,7 +80,6 @@ function hero(data, ctx) {
         <span>${esc(t.dayMonth(p.days_in_month, short))}</span></div>
     </div>
     ${dataLine(data, ctx)}
-    ${preview}
   </div>`;
 }
 
@@ -182,6 +178,7 @@ export function comingSheet(row, ctx) {
   }
   if (row && row.kind === 'event') {
     return {
+      close: true,
       title: row.name,
       body: `<form id="coming-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         ${field('cf-name', t.cfLabel, row.name, 'maxlength="80"')}
@@ -196,6 +193,7 @@ export function comingSheet(row, ctx) {
   }
   const isNew = !row;
   return {
+    close: true,
     title: isNew ? t.comingAdd : row.name,
     body: `<form id="coming-form" class="pack-form" style="flex-direction:column;align-items:stretch">
       ${field('cf-name', t.cfName, row && row.name, 'maxlength="80"')}

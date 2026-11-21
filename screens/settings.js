@@ -212,7 +212,9 @@ export function syncSheet(status, ctx) {
       <button type="button" class="btn-soft" data-act="sync-code">${esc(t.syncNewCode)}</button>
       <button type="button" class="btn-soft" data-act="sync-logout">${esc(t.syncLogout)}</button>`;
   }
-  return { title: t.syncRow, body: `${body}${note}` };
+  // A sign-in or new-account form is saved with its button: "Close" in the header.
+  const form = Boolean(status && status.configured && !status.signed_in && ctx.mode !== 'server');
+  return { close: form, title: t.syncRow, body: `${body}${note}` };
 }
 
 /** Settings > Profile, and the one-time question at the first sign-in (design.md §6). */
@@ -222,6 +224,7 @@ export function profileSheet(profile, ctx, first = false) {
     return { title: t.profileTitle, body: `<span class="muted" style="font-size:15px;line-height:21px">${esc(t.profileNeedsAccount)}</span>` };
   }
   return {
+    close: true,
     title: first ? t.askName : t.profileTitle,
     body: `<form id="profile-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         <input id="profile-input" class="text-input" maxlength="40" autocomplete="given-name" value="${esc(profile.name || '')}"
@@ -318,6 +321,7 @@ export function categoryNameSheet(name, ctx, defaults, data, pickInto = false) {
     }
   }
   return {
+    close: true,
     title: ctx.categoryName(name),
     body: `<form id="cat-name-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         ${nameFields('cat-name', own, defaults, t)}
@@ -346,6 +350,7 @@ export function groupSheet(bucket, ctx, defaults, data, pickInto = false) {
     }
   }
   return {
+    close: true,
     title: groupLabel(g, ctx),
     body: `<form id="grp-name-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         ${nameFields('grp-name', own, defaults, t)}
@@ -362,6 +367,7 @@ export function groupSheet(bucket, ctx, defaults, data, pickInto = false) {
 export function budgetSheet(g, ctx) {
   const { t } = ctx;
   return {
+    close: true,
     title: t.catEdBudgetOf(groupLabel(g, ctx)),
     body: `<form id="bud-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         <input id="bud-amount" class="text-input" inputmode="decimal" dir="ltr" value="${esc(g.budget_text || '')}" placeholder="0" aria-label="${esc(t.catEdBudget)}">
@@ -375,6 +381,7 @@ export function budgetSheet(g, ctx) {
 export function newCategorySheet(g, ctx) {
   const { t } = ctx;
   return {
+    close: true,
     title: t.catEdNewIn(groupLabel(g, ctx)),
     body: `<form id="cat-new-form" class="pack-form" style="flex-direction:column;align-items:stretch">
         <input id="cat-new-name" class="text-input" maxlength="40" dir="auto" placeholder="${esc(t.catEdNewPh)}" aria-label="${esc(t.catEdNew)}">
@@ -408,6 +415,7 @@ export function mapSheet(pending, ctx) {
       <div class="cat-chips">${pending.tables.map((x, i) => `<button type="button" class="cat-chip" aria-pressed="${i === pending.table}" data-act="map-table" data-arg="${i}">${esc(x.sheet)}</button>`).join('')}</div></div>` : '';
   const stem = pending.file.replace(/\.[^.]+$/, '');
   return {
+    close: true,
     title: t.mapTitle,
     body: `<span class="muted" style="font-size:14px;line-height:20px">${esc(t.mapIntro)}</span>
       <form id="map-form" class="map-form">
